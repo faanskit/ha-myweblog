@@ -14,6 +14,7 @@ This is a custom Home Assistant integration for [myWebLog](https://www.myweblog.
 ### Option 1: HACS (Recommended)
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=faanskit&repository=ha-myweblog&category=integration)
 
+### Option 2: HACS Custom Repository
 **Pre-requisites:**
 - HACS installed
 
@@ -25,7 +26,7 @@ This integration is not (currently) in the default HACS store, please add it as 
 5. Restart Home Assistant.
 6. **Add the "myWebLog" integration via the Home Assistant UI (Configuration → Devices & Services → Add Integration).**
 
-### Option 2: Git installation
+### Option 3: Git installation
 
 1. Make sure you have git installed on your machine.
 2. Navigate to your Home Assistant configuration directory (commonly `~/.homeassistant` or `/config`).
