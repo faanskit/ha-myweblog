@@ -1,0 +1,45 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        },
+        "description": "Please enter your myWebLog credentials.",
+        "title": "myWebLog"
+      },
+      "select_airplane": {
+        "data": {
+          "airplanes": "Select Airplanes"
+        },
+        "description": "Select the airplanes you want to monitor. You can select multiple airplanes.",
+        "title": "Select Airplane(s) for myWebLog"
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "Account is already configured"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "myweblog_next_booking": { "name": "Next Booking" },
+      "myweblog_yellow_tags": { "name": "Yellow Tags" },
+      "myweblog_red_tags": { "name": "Red Tags" },
+      "myweblog_days_to_go": { "name": "Days to Go (Maintenance)" },
+      "myweblog_hours_to_go": { "name": "Hours to Go (Maintenance)" },
+      "myweblog_airborne": { "name": "Airborne" },
+      "myweblog_block": { "name": "Block" },
+      "myweblog_tachometer": { "name": "Tachometer" },
+      "myweblog_tach_time": { "name": "Tach Time" },
+      "myweblog_landings": { "name": "Landings" },
+      "myweblog_model": { "name": "Model" },
+      "myweblog_club": { "name": "Club" }
+    }
+  }
+}

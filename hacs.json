@@ -1,0 +1,6 @@
+{
+    "name": "myWebLog",
+    "homeassistant": "2025.4.4",
+    "render_readme": true,
+    "country": ["ALL"]
+  }

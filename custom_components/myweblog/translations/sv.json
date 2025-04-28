@@ -1,0 +1,45 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "username": "Användarnamn",
+          "password": "Lösenord"
+        },
+        "description": "Ange dina inloggningsuppgifter för myWebLog.",
+        "title": "myWebLog"
+      },
+      "select_airplane": {
+        "data": {
+          "airplanes": "Välj Flygplan"
+        },
+        "description": "Välj flygplanen du vill övervaka. Du kan välja flera flygplan.",
+        "title": "Välj Flygplan för myWebLog"
+      }
+    },
+    "error": {
+      "cannot_connect": "Det gick inte att ansluta",
+      "invalid_auth": "Ogiltiga inloggningsuppgifter",
+      "unknown": "Oväntat fel"
+    },
+    "abort": {
+      "already_configured": "Kontot är redan konfigurerat"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "myweblog_next_booking": { "name": "Nästa Bokning" },
+      "myweblog_yellow_tags": { "name": "Gul Anmärkning" },
+      "myweblog_red_tags": { "name": "Röd Anmärkning" },
+      "myweblog_days_to_go": { "name": "Dagar till Flygstopp" },
+      "myweblog_hours_to_go": { "name": "Timmar till Flygstopp" },
+      "myweblog_airborne": { "name": "Flygtid" },
+      "myweblog_block": { "name": "Blocktid" },
+      "myweblog_tachometer": { "name": "Tachometer" },
+      "myweblog_tach_time": { "name": "Tachotid" },
+      "myweblog_landings": { "name": "Landningar" },
+      "myweblog_model": { "name": "Modell" },
+      "myweblog_club": { "name": "Flygklubb" }
+    }
+  }
+}

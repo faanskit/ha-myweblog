@@ -1,0 +1,15 @@
+{
+  "domain": "myweblog",
+  "name": "myWebLog",
+  "codeowners": ["@faanskit"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/faanskit/ha-myweblog#readme",
+  "homekit": {},
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/faanskit/ha-myweblog/issues",
+  "requirements": ["pyMyweblog==0.3.3"],
+  "ssdp": [],
+  "version": "0.0.1",
+  "zeroconf": []
+}
