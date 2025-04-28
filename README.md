@@ -5,22 +5,45 @@ This is a custom Home Assistant integration for [myWebLog](https://www.myweblog.
 ## Features
 - **Multi-Airplane Support:** Select and monitor multiple airplanes during setup.
 - **Booking Awareness:** Each airplane sensor shows the date/time of the next booking (as a timestamp).
-- **Maintenance & Flight Data:** Exposes maintenance, remarks, and flight data as sensor attributes.
-- **Localization:** Handles local timezones for bookings.
+- **Maintenance & Flight Data:** Exposes maintenance, remarks, and flight data as individual sensors.
+- **Localization:** Handles local timezones for bookings and supports translations.
+- **Automation Ready:** Sensor state changes (e.g., next booking) can be used to trigger automations—ideal for use cases like pre-heating an airplane before a scheduled flight.
+- **Efficient & Grouped:** Sensors are grouped by airplane and share API calls for efficient operation.
 
 ## Installation
-1. Copy this repository into your Home Assistant `custom_components` directory:
+### Option 1: HACS (Recommended)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=faanskit&repository=ha-myweblog&category=integration)
+
+**Pre-requisites:**
+- HACS installed
+
+This integration is not (currently) in the default HACS store, please add it as a custom repository:
+1. Go to HACS in your Home Assistant sidebar.
+2. Click the three-dot menu (⋮) in the top right and select "Custom repositories".
+3. Enter `https://github.com/faanskit/ha-myweblog` as the repository URL and select "Integration" as the category.
+4. Find "myWebLog" in HACS > Integrations and click "Download".
+5. Restart Home Assistant.
+6. **Add the "myWebLog" integration via the Home Assistant UI (Configuration → Devices & Services → Add Integration).**
+
+### Option 2: Git installation
+
+1. Make sure you have git installed on your machine.
+2. Navigate to your Home Assistant configuration directory (commonly `~/.homeassistant` or `/config`).
+3. If it doesn't exist, create a `custom_components` directory:
+   ```bash
+   mkdir -p custom_components
    ```
-   custom_components/
-     myweblog/
-       __init__.py
-       sensor.py
-       config_flow.py
-       const.py
-       ...
+4. Change into the `custom_components` directory:
+   ```bash
+   cd custom_components
    ```
-2. Restart Home Assistant.
-3. Add the "myWebLog" integration via the Home Assistant UI (Configuration → Devices & Services → Add Integration).
+5. Clone the repository:
+   ```bash
+   git clone https://github.com/faanskit/ha-myweblog.git myweblog
+   ```
+   This will create a `myweblog` directory with all integration files inside.
+6. Restart Home Assistant.
+7. **Add the "myWebLog" integration via the Home Assistant UI (Configuration → Devices & Services → Add Integration).**
 
 ## Configuration
 - Enter your myWebLog username and password during setup.
@@ -56,6 +79,30 @@ For each selected airplane, **multiple sensors** are created—one for each metr
 
 - **Grouping:**
   - In the Home Assistant UI, sensors are grouped by airplane, making it easy to monitor all metrics for each aircraft on a single card.
+
+## Example: Automate Pre-Flight Heater
+
+You can use the `next_booking` sensor to automate actions before a scheduled flight. For example, to start a heater one hour before the next booking:
+
+```yaml
+automation:
+  - alias: "Preheat Before Next Booking"
+    trigger:
+      - platform: state
+        entity_id: sensor.se_mbi_next_booking  # Replace with your airplane's sensor
+    condition:
+      - condition: template
+        value_template: >
+          {{ (as_timestamp(states('sensor.se_mbi_next_booking')) - as_timestamp(now())) <= 3600 }}
+    action:
+      - service: switch.turn_on
+        target:
+          entity_id: switch.heater  # Replace with your heater switch
+```
+
+- This automation will trigger whenever the next booking changes (including when a new booking is added that is sooner than the previous one).
+- The condition ensures the heater only turns on if the booking is within an hour.
+- Adjust `sensor.se_mbi_next_booking` and `switch.heater` to match your actual entity IDs.
 
 ## Options & Customization
 - To change selected airplanes after setup, remove and re-add the integration (options flow coming soon).
