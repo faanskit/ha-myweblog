@@ -28,18 +28,18 @@
   },
   "entity": {
     "sensor": {
-      "myweblog_next_booking": { "name": "Nästa Bokning" },
-      "myweblog_yellow_tags": { "name": "Gul Anmärkning" },
-      "myweblog_red_tags": { "name": "Röd Anmärkning" },
-      "myweblog_days_to_go": { "name": "Dagar till Flygstopp" },
-      "myweblog_hours_to_go": { "name": "Timmar till Flygstopp" },
-      "myweblog_airborne": { "name": "Flygtid" },
-      "myweblog_block": { "name": "Blocktid" },
-      "myweblog_tachometer": { "name": "Tachometer" },
-      "myweblog_tach_time": { "name": "Tachotid" },
-      "myweblog_landings": { "name": "Landningar" },
-      "myweblog_model": { "name": "Modell" },
-      "myweblog_club": { "name": "Flygklubb" }
+      "sensor_next_booking": { "name": "Nästa Bokning" },
+      "sensor_yellow_tags": { "name": "Gul Anmärkning" },
+      "sensor_red_tags": { "name": "Röd Anmärkning" },
+      "sensor_days_to_go": { "name": "Dagar till Flygstopp" },
+      "sensor_hours_to_go": { "name": "Timmar till Flygstopp" },
+      "sensor_airborne": { "name": "Flygtid" },
+      "sensor_block": { "name": "Blocktid" },
+      "sensor_tachometer": { "name": "Tachometer" },
+      "sensor_tach_time": { "name": "Tachotid" },
+      "sensor_landings": { "name": "Landningar" },
+      "sensor_model": { "name": "Modell" },
+      "sensor_club": { "name": "Flygklubb" }
     }
   }
 }
