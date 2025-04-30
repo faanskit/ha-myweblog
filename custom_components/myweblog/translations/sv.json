@@ -28,18 +28,18 @@
   },
   "entity": {
     "sensor": {
-      "sensor_next_booking": { "name": "Nästa Bokning" },
-      "sensor_yellow_tags": { "name": "Gul Anmärkning" },
-      "sensor_red_tags": { "name": "Röd Anmärkning" },
-      "sensor_days_to_go": { "name": "Dagar till Flygstopp" },
-      "sensor_hours_to_go": { "name": "Timmar till Flygstopp" },
-      "sensor_airborne": { "name": "Flygtid" },
-      "sensor_block": { "name": "Blocktid" },
-      "sensor_tachometer": { "name": "Tachometer" },
-      "sensor_tach_time": { "name": "Tachotid" },
-      "sensor_landings": { "name": "Landningar" },
-      "sensor_model": { "name": "Modell" },
-      "sensor_club": { "name": "Flygklubb" }
+      "next_booking": { "name": "Nästa Bokning" },
+      "yellow_tags": { "name": "Gul Anmärkning" },
+      "red_tags": { "name": "Röd Anmärkning" },
+      "days_to_go": { "name": "Dagar till Flygstopp" },
+      "hours_to_go": { "name": "Timmar till Flygstopp" },
+      "airborne": { "name": "Flygtid" },
+      "block": { "name": "Blocktid" },
+      "tachometer": { "name": "Tachometer" },
+      "tach_time": { "name": "Tachotid" },
+      "landings": { "name": "Landningar" },
+      "model": { "name": "Modell" },
+      "club": { "name": "Flygklubb" }
     }
   }
 }

@@ -28,18 +28,18 @@
   },
   "entity": {
     "sensor": {
-      "sensor_next_booking": { "name": "Next Booking" },
-      "sensor_yellow_tags": { "name": "Yellow Tags" },
-      "sensor_red_tags": { "name": "Red Tags" },
-      "sensor_days_to_go": { "name": "Days to Go (Maintenance)" },
-      "sensor_hours_to_go": { "name": "Hours to Go (Maintenance)" },
-      "sensor_airborne": { "name": "Airborne" },
-      "sensor_block": { "name": "Block" },
-      "sensor_tachometer": { "name": "Tachometer" },
-      "sensor_tach_time": { "name": "Tach Time" },
-      "sensor_landings": { "name": "Landings" },
-      "sensor_model": { "name": "Model" },
-      "sensor_club": { "name": "Club" }
+      "next_booking": { "name": "Next Booking" },
+      "yellow_tags": { "name": "Yellow Tags" },
+      "red_tags": { "name": "Red Tags" },
+      "days_to_go": { "name": "Days to Go (Maintenance)" },
+      "hours_to_go": { "name": "Hours to Go (Maintenance)" },
+      "airborne": { "name": "Airborne" },
+      "block": { "name": "Block" },
+      "tachometer": { "name": "Tachometer" },
+      "tach_time": { "name": "Tach Time" },
+      "landings": { "name": "Landings" },
+      "model": { "name": "Model" },
+      "club": { "name": "Club" }
     }
   }
 }
