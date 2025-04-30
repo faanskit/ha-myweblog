@@ -15,7 +15,7 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 
-from .const import DOMAIN
+from .const import DOMAIN, APP_SECRET
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ async def validate_credentials(hass: HomeAssistant, username: str, password: str
     """Validate the user credentials and return (airplanes, app_token)."""
     try:
         async with MyWebLogClient(username, password, app_token=None) as client:
-            app_token = await client.obtainAppToken()
+            app_token = await client.obtainAppToken(APP_SECRET)
             result = await client.getObjects()
 
             # Filter out non-planes and extract required data

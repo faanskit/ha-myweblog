@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 
+APP_SECRET = "**--hidden--**"
 DOMAIN = "myweblog"
 
 DEFAULT_SCAN_INTERVAL = 300  # 5 minutes
