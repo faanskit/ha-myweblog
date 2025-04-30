@@ -191,10 +191,7 @@ class MyWebLogAirplaneSensor(SensorEntity):
         self._airplane_id = airplane["id"]
         self._airplane_regnr = airplane["regnr"]
         self._airplane_title = airplane.get("title", airplane["regnr"])
-        self._attr_name = f"{self._airplane_regnr} {description.name}"
         self._attr_unique_id = f"myweblog_{self._airplane_regnr.lower().replace('-', '_')}_{description.key}"
-        self._attr_device_class = description.device_class
-        self._attr_icon = description.icon
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, self._airplane_regnr)},
             name=self._airplane_regnr,
