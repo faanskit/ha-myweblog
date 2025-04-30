@@ -134,6 +134,22 @@ automation:
 - Home Assistant 2023.6 or newer recommended
 - Python package: `pyMyweblog` (automatically installed)
 
+## Logging & Troubleshooting
+This integration includes detailed logging for setup, configuration, data fetching, and sensor updates. Logs can help you troubleshoot connection issues, API errors, and integration behavior.
+
+**How to enable debug logging:**
+Add the following to your `configuration.yaml` to see detailed logs for this integration:
+
+```yaml
+logger:
+  default: info
+  logs:
+    custom_components.myweblog: debug
+```
+
+- Sensor creation, data updates, config flow steps, and errors are all logged.
+- Check the Home Assistant logs if you experience issues with authentication, data updates, or sensor creation.
+
 ## License
 See [LICENSE](LICENSE).
 

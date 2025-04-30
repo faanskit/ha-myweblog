@@ -15,7 +15,7 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 
-from .const import DOMAIN, APP_SECRET
+from .const import APP_SECRET, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 
 async def validate_credentials(hass: HomeAssistant, username: str, password: str):
     """Validate the user credentials and return (airplanes, app_token)."""
+    _LOGGER.debug("Validating credentials for username=%s", username)
     try:
         async with MyWebLogClient(username, password, app_token=None) as client:
             app_token = await client.obtainAppToken(APP_SECRET)
@@ -49,9 +50,15 @@ async def validate_credentials(hass: HomeAssistant, username: str, password: str
                             "title": f"{regnr} ({obj.get('model', '')})",
                         }
                     )
+            _LOGGER.info(
+                "Validated credentials for %s, found %d airplanes",
+                username,
+                len(airplanes),
+            )
             return airplanes, app_token
 
     except Exception as err:
+        _LOGGER.error("Credential validation failed for username=%s: %s", username, err)
         raise CannotConnect from err
 
 
@@ -71,6 +78,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Handle the initial step for username/password."""
+        _LOGGER.debug("Starting config flow: step_user")
         errors = {}
 
         if user_input is not None:
@@ -80,11 +88,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
                 self._username = user_input["username"]
                 self._password = user_input["password"]
+                _LOGGER.info(
+                    "Config flow: credentials validated for %s", self._username
+                )
                 return await self.async_step_select_airplane()
             except CannotConnect:
+                _LOGGER.error(
+                    "Config flow: cannot connect for username=%s",
+                    user_input.get("username"),
+                )
                 errors["base"] = "cannot_connect"
             except Exception:
-                _LOGGER.exception("Unexpected exception")
+                _LOGGER.exception("Config flow: unexpected exception")
                 errors["base"] = "unknown"
 
         return self.async_show_form(
@@ -95,6 +110,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Handle the airplane selection step."""
+        _LOGGER.debug("Starting config flow: step_select_airplane")
         errors = {}
 
         if user_input is not None:
@@ -108,6 +124,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Create a summary title with the number of planes
             planes_count = len(selected_planes)
             title = f"MyWeblog ({self._username} - {planes_count} {'plane' if planes_count == 1 else 'planes'})"
+
+            _LOGGER.info(
+                "Config flow: selected %d airplanes for user %s",
+                planes_count,
+                self._username,
+            )
 
             # Store the planes data as a list
             planes_data = [

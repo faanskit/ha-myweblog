@@ -136,9 +136,15 @@ async def async_setup_entry(
     airplanes = config_entry.data.get("airplanes", [])
 
     async def async_update_objects():
-        async with MyWebLogClient(username, password, app_token) as client:
-            result = await client.getObjects()
-            return result.get("Object", [])
+        _LOGGER.debug("Fetching objects for username=%s", username)
+        try:
+            async with MyWebLogClient(username, password, app_token) as client:
+                result = await client.getObjects()
+                _LOGGER.debug("Fetched objects: %s", result)
+                return result.get("Object", [])
+        except (ValueError, KeyError, TypeError) as e:
+            _LOGGER.error("Error fetching objects: %s", e)
+            return []
 
     objects_coordinator = DataUpdateCoordinator(
         hass,
@@ -151,11 +157,20 @@ async def async_setup_entry(
 
     sensors = []
     for airplane in airplanes:
+        _LOGGER.info("Creating sensor for airplane_id=%s", airplane["id"])
 
         async def async_update_bookings(airplane_id=airplane["id"]):
-            async with MyWebLogClient(username, password, app_token) as client:
-                result = await client.getBookings(airplane_id)
-                return result.get("Booking", [])
+            _LOGGER.debug("Fetching bookings for airplane_id=%s", airplane_id)
+            try:
+                async with MyWebLogClient(username, password, app_token) as client:
+                    result = await client.getBookings(airplane_id)
+                    _LOGGER.debug("Fetched bookings: %s", result)
+                    return result.get("Booking", [])
+            except (ValueError, KeyError, TypeError) as e:
+                _LOGGER.error(
+                    "Error fetching bookings for airplane_id=%s: %s", airplane_id, e
+                )
+                return []
 
         bookings_coordinator = DataUpdateCoordinator(
             hass,
@@ -198,6 +213,12 @@ class MyWebLogAirplaneSensor(SensorEntity):
             name=self._airplane_regnr,
             manufacturer="myWebLog",
             model=self._airplane_title,
+        )
+        _LOGGER.debug(
+            "Created sensor: regnr=%s, key=%s, unique_id=%s",
+            self._airplane_regnr,
+            description.key,
+            self._attr_unique_id,
         )
 
     def _get_yellow_tags(self, obj):
@@ -310,6 +331,9 @@ class MyWebLogAirplaneSensor(SensorEntity):
         """Return the state of the sensor."""
         obj = self._get_airplane_obj()
         if obj is None:
+            _LOGGER.warning(
+                "No airplane object found for regnr=%s", self._airplane_regnr
+            )
             return None
 
         key = self.entity_description.key
@@ -330,7 +354,12 @@ class MyWebLogAirplaneSensor(SensorEntity):
         }
 
         if key in dispatch:
-            return dispatch[key](obj)
+            value = dispatch[key](obj)
+            _LOGGER.debug("Sensor %s (%s): state=%s", self._airplane_regnr, key, value)
+            return value
+        _LOGGER.warning(
+            "Unknown sensor key: %s for regnr=%s", key, self._airplane_regnr
+        )
         return None
 
     @property
