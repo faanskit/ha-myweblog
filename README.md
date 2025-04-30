@@ -54,6 +54,7 @@ This integration is not (currently) in the default HACS store, please add it as 
 For each selected airplane, **multiple sensors** are created—one for each metric:
 
 - **Entity IDs:**
+
   - `sensor.<regnr>_next_booking` (Next booking timestamp)
   - `sensor.<regnr>_yellow_tags` (Yellow remarks count)
   - `sensor.<regnr>_red_tags` (Red remarks count)
@@ -80,6 +81,24 @@ For each selected airplane, **multiple sensors** are created—one for each metr
 
 - **Grouping:**
   - In the Home Assistant UI, sensors are grouped by airplane, making it easy to monitor all metrics for each aircraft on a single card.
+
+## Displaying Icon Colors in Lovelace
+
+To reflect the `icon_color` attribute (red for `red_tags`, yellow for `yellow_tags`) in the frontend, use a Lovelace card with the following configuration:
+
+```yaml
+type: entity
+entity: sensor.<your_sensor_entity_id>
+icon: mdi:alert  # Optional, if not set in the sensor
+style: |
+  :host {
+    --paper-item-icon-color: {{ state_attr('sensor.<your_sensor_entity_id>', 'icon_color') | default('gray') }};
+  }
+```
+
+Replace `<your_sensor_entity_id>` with your actual sensor entity ID (e.g., `sensor.airplane_red_tags`).
+
+This approach uses a custom style to dynamically set the icon color based on the `icon_color` attribute. If the attribute is not set, the icon will default to gray.
 
 ## Example: Automate Pre-Flight Heater
 

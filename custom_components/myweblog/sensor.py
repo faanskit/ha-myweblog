@@ -202,82 +202,156 @@ class MyWebLogAirplaneSensor(SensorEntity):
             model=self._airplane_title,
         )
 
+    def _get_yellow_tags(self, obj):
+        return len(
+            [r for r in obj.get("activeRemarks", []) if r.get("remarkCategory") == "1"]
+        )
+
+    def _get_red_tags(self, obj):
+        return len(
+            [r for r in obj.get("activeRemarks", []) if r.get("remarkCategory") == "2"]
+        )
+
+    def _get_days_to_go(self, obj):
+        return obj.get("maintTimeDate", {}).get("daysToGoValue", 0)
+
+    def _get_hours_to_go(self, obj):
+        value = obj.get("maintTimeDate", {}).get("hoursToGoValue", 0)
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return value
+        return round(value, 2)
+
+    def _get_airborne(self, obj):
+        try:
+            value = obj["flightData"]["total"]["airborne"]
+        except (KeyError, TypeError):
+            value = obj.get("ftData", {}).get("airborne", 0)
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return value
+        return round(value, 2)
+
+    def _get_block(self, obj):
+        try:
+            value = obj["flightData"]["total"]["block"]
+        except (KeyError, TypeError):
+            value = obj.get("ftData", {}).get("block", 0)
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return value
+        return round(value, 2)
+
+    def _get_tachometer(self, obj):
+        try:
+            value = obj["flightData"]["total"]["tachoMeter"]
+        except (KeyError, TypeError):
+            value = obj.get("ftData", {}).get("tachometer", 0)
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return value
+        return round(value, 2)
+
+    def _get_tach_time(self, obj):
+        try:
+            value = obj["flightData"]["total"]["tachtime"]
+        except (KeyError, TypeError):
+            value = obj.get("ftData", {}).get("tachtime", 0)
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return value
+        return round(value, 2)
+
+    def _get_landings(self, obj):
+        try:
+            return obj["flightData"]["total"]["landings"]
+        except (KeyError, TypeError):
+            return obj.get("ftData", {}).get("landings", 0)
+
+    def _get_model(self, obj):
+        return obj.get("model")
+
+    def _get_club(self, obj):
+        return obj.get("clubname")
+
+    def _get_next_booking(self, obj):
+        bookings = self._get_airplane_bookings()
+        if not bookings:
+            return None
+        now = time.time()
+        future_bookings = [
+            b for b in bookings if b.get("bStart") and b.get("bStart") > now
+        ]
+        next_booking = min(
+            future_bookings,
+            key=lambda b: b.get("bStart", float("inf")),
+            default=None,
+        )
+        if not next_booking or not next_booking.get("bStartLTObj"):
+            return None
+        try:
+            lt_obj = next_booking["bStartLTObj"]
+            dt_str = lt_obj.get("date")
+            tz_str = lt_obj.get("timezone")
+            try:
+                dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S.%f")
+            except ValueError:
+                dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+            dt = dt.replace(tzinfo=ZoneInfo(tz_str))
+            return dt.isoformat()
+        except (KeyError, TypeError, ValueError):
+            return None
+
     @property
     def state(self) -> StateType:
         """Return the state of the sensor."""
         obj = self._get_airplane_obj()
-        if not obj:
+        if obj is None:
             return None
+
         key = self.entity_description.key
-        if key == "next_booking":
-            now_ts = time.time()
-            bookings = self._get_airplane_bookings()
-            future_bookings = [b for b in bookings if b.get("bStart", 0) > now_ts]
-            if not future_bookings:
-                return None
-            next_booking = min(
-                future_bookings,
-                key=lambda b: b.get("bStart", float("inf")),
-                default=None,
-            )
-            if not next_booking or not next_booking.get("bStartLTObj"):
-                return None
-            try:
-                lt_obj = next_booking["bStartLTObj"]
-                dt_str = lt_obj.get("date")
-                tz_str = lt_obj.get("timezone")
-                dt = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%S")
-                dt = dt.replace(tzinfo=ZoneInfo(tz_str))
-                return dt.isoformat()
-            except (KeyError, TypeError, ValueError):
-                return None
-        elif key == "yellow_tags":
-            return sum(
-                1 for r in obj.get("activeRemarks", []) if r.get("category") == 2
-            )
-        elif key == "red_tags":
-            return sum(
-                1 for r in obj.get("activeRemarks", []) if r.get("category") == 1
-            )
-        elif key == "days_to_go":
-            return obj.get("maintTimeDate", {}).get("daysToGoValue", 0)
-        elif key == "hours_to_go":
-            return obj.get("maintTimeDate", {}).get("hoursToGoValue", 0)
-        elif key == "airborne":
-            # Prefer flightData.total.airborne if available
-            try:
-                return obj["flightData"]["total"]["airborne"]
-            except (KeyError, TypeError):
-                return obj.get("ftData", {}).get("airborne", 0)
-        elif key == "block":
-            # Prefer flightData.total.block if available
-            try:
-                return obj["flightData"]["total"]["block"]
-            except (KeyError, TypeError):
-                return obj.get("ftData", {}).get("block", 0)
-        elif key == "tachometer":
-            # Prefer flightData.total.tachometer if available
-            try:
-                return obj["flightData"]["total"]["tachoMeter"]
-            except (KeyError, TypeError):
-                return obj.get("ftData", {}).get("tachometer", 0)
-        elif key == "tach_time":
-            # Prefer flightData.total.tachtime if available
-            try:
-                return obj["flightData"]["total"]["tachtime"]
-            except (KeyError, TypeError):
-                return obj.get("ftData", {}).get("tachtime", 0)
-        elif key == "landings":
-            # Prefer flightData.total.landings if available
-            try:
-                return obj["flightData"]["total"]["landings"]
-            except (KeyError, TypeError):
-                return obj.get("ftData", {}).get("landings", 0)
-        elif key == "model":
-            return obj.get("model")
-        elif key == "club":
-            return obj.get("clubname")
+
+        dispatch = {
+            "yellow_tags": self._get_yellow_tags,
+            "red_tags": self._get_red_tags,
+            "days_to_go": self._get_days_to_go,
+            "hours_to_go": self._get_hours_to_go,
+            "airborne": self._get_airborne,
+            "block": self._get_block,
+            "tachometer": self._get_tachometer,
+            "tach_time": self._get_tach_time,
+            "landings": self._get_landings,
+            "model": self._get_model,
+            "club": self._get_club,
+            "next_booking": self._get_next_booking,
+        }
+
+        if key in dispatch:
+            return dispatch[key](obj)
         return None
+
+    @property
+    def extra_state_attributes(self):
+        """Return extra state attributes for the sensor.
+
+        Sets the 'icon_color' attribute dynamically for Home Assistant 2023.4+:
+        - For 'red_tags' sensors: sets icon color to red if value > 0.
+        - For 'yellow_tags' sensors: sets icon color to yellow if value > 0.
+        This allows the icon color to reflect the sensor state in the UI.
+        """
+        attrs = super().extra_state_attributes or {}
+        key = self.entity_description.key
+        state = self.state
+        if key == "red_tags" and isinstance(state, int) and state > 0:
+            attrs["icon_color"] = "red"
+        elif key == "yellow_tags" and isinstance(state, int) and state > 0:
+            attrs["icon_color"] = "yellow"
+        return attrs
 
     def _get_airplane_obj(self):
         data = self._objects_coordinator.data
