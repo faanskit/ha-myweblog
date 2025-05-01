@@ -214,6 +214,7 @@ class MyWebLogAirplaneSensor(SensorEntity):
             manufacturer="myWebLog",
             model=self._airplane_title,
         )
+        self._next_booking_obj = None
         _LOGGER.debug(
             "Created sensor: regnr=%s, key=%s, unique_id=%s",
             self._airplane_regnr,
@@ -301,6 +302,7 @@ class MyWebLogAirplaneSensor(SensorEntity):
     def _get_next_booking(self, obj):
         bookings = self._get_airplane_bookings()
         if not bookings:
+            self._next_booking_obj = None
             return None
         now = time.time()
         future_bookings = [
@@ -311,6 +313,7 @@ class MyWebLogAirplaneSensor(SensorEntity):
             key=lambda b: b.get("bStart", float("inf")),
             default=None,
         )
+        self._next_booking_obj = next_booking  # Save for attribute access
         if not next_booking or not next_booking.get("bStartLTObj"):
             return None
         try:
@@ -370,6 +373,7 @@ class MyWebLogAirplaneSensor(SensorEntity):
         - For 'red_tags' sensors: sets icon color to red if value > 0.
         - For 'yellow_tags' sensors: sets icon color to yellow if value > 0.
         This allows the icon color to reflect the sensor state in the UI.
+        Adds booking owner fullname for next_booking sensor.
         """
         attrs = super().extra_state_attributes or {}
         key = self.entity_description.key
@@ -378,6 +382,16 @@ class MyWebLogAirplaneSensor(SensorEntity):
             attrs["icon_color"] = "red"
         elif key == "yellow_tags" and isinstance(state, int) and state > 0:
             attrs["icon_color"] = "yellow"
+        if key == "next_booking":
+            # Try to get the fullname and elev_fullname from the booking object
+            fullname = None
+            student_name = None
+            next_booking_obj = getattr(self, "_next_booking_obj", None)
+            if next_booking_obj:
+                fullname = next_booking_obj.get("fullname")
+                student_name = next_booking_obj.get("elev_fullname")
+            attrs["owner_name"] = fullname
+            attrs["student_name"] = student_name
         return attrs
 
     def _get_airplane_obj(self):

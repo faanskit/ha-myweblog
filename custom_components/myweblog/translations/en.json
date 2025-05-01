@@ -28,7 +28,7 @@
   },
   "entity": {
     "sensor": {
-      "next_booking": { "name": "Next Booking" },
+      "next_booking": { "name": "Next Booking", "owner_name": "Booking Owner", "student_name": "Student Name" },
       "yellow_tags": { "name": "Yellow Tags" },
       "red_tags": { "name": "Red Tags" },
       "days_to_go": { "name": "Days to Go (Maintenance)" },
