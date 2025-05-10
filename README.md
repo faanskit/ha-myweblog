@@ -105,24 +105,50 @@ This approach uses a custom style to dynamically set the icon color based on the
 You can use the `next_booking` sensor to automate actions before a scheduled flight. For example, to start a heater one hour before the next booking:
 
 ```yaml
-automation:
-  - alias: "Preheat Before Next Booking"
-    trigger:
-      - platform: state
-        entity_id: sensor.se_mbi_next_booking  # Replace with your airplane's sensor
-    condition:
-      - condition: template
-        value_template: >
-          {{ (as_timestamp(states('sensor.se_mbi_next_booking')) - as_timestamp(now())) <= 3600 }}
-    action:
-      - service: switch.turn_on
-        target:
-          entity_id: switch.heater  # Replace with your heater switch
+alias: Turn on heater 60 minutes before booking
+description: This automation turns on the heater 1 hour before the next booking starts.
+trigger:
+  - platform: time_pattern
+    minutes: "/5"  # Runs every 5 minutes
+condition:
+  - condition: template
+    value_template: >-
+      {% set booking_time = as_timestamp(states('sensor.next_booking')) %}
+      {% set current_time = as_timestamp(now()) %}
+      {% set time_diff = booking_time - current_time %}
+      {% set window = 300 %}  # 5 minutes in seconds
+      {{ time_diff > 0 and time_diff <= 3600 and time_diff >= (3600 - window) }}
+action:
+  - service: switch.turn_on
+    target:
+      entity_id: switch.heater
+mode: single
 ```
+**Trigger**: Runs every 5 minutes.
 
-- This automation will trigger whenever the next booking changes (including when a new booking is added that is sooner than the previous one).
-- The condition ensures the heater only turns on if the booking is within an hour.
-- Adjust `sensor.se_mbi_next_booking` and `switch.heater` to match your actual entity IDs.
+**Condition**: Checks if the next booking is approximately 60 minutes away (within ±5 minutes).
+
+**Action**: Turns on the heater (replace switch.heater with your actual switch entity).
+
+```yaml
+alias: Turn off heater after 60 minutes
+description: Turns off the heater if it has been on for 60 minutes.
+trigger:
+  - platform: state
+    entity_id: switch.heater
+    to: "on"
+    for:
+      hours: 1
+condition: []
+action:
+  - service: switch.turn_off
+    target:
+      entity_id: switch.heater
+mode: single
+```
+**Trigger**: Fires when the switch has been in the on state for 1 hour.
+
+**Action**: Turns off the heater.
 
 ## Options & Customization
 - To change selected airplanes after setup, remove and re-add the integration (options flow coming soon).
