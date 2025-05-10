@@ -390,6 +390,20 @@ class MyWebLogAirplaneSensor(SensorEntity):
             if next_booking_obj:
                 fullname = next_booking_obj.get("fullname")
                 student_name = next_booking_obj.get("elev_fullname")
+                # Calculate booking length in seconds if both bStart and bEnd are present
+                booking_length = None
+                b_start = next_booking_obj.get("bStart")
+                b_end = next_booking_obj.get("bEnd")
+                if isinstance(b_start, (int, float)) and isinstance(
+                    b_end, (int, float)
+                ):
+                    total_minutes = int((b_end - b_start) / 60)
+                    hours, minutes = divmod(total_minutes, 60)
+                    if hours > 0:
+                        booking_length = f"{hours} hr {minutes} min"
+                    else:
+                        booking_length = f"{minutes} min"
+                attrs["booking_length"] = booking_length
             attrs["owner_name"] = fullname
             attrs["student_name"] = student_name
         return attrs

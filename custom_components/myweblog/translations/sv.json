@@ -28,7 +28,7 @@
   },
   "entity": {
     "sensor": {
-      "next_booking": { "name": "Nästa Bokning", "owner_name": "Bokningsägare", "student_name": "Elevens namn" },
+      "next_booking": { "name": "Nästa Bokning", "owner_name": "Bokningsägare", "student_name": "Elevens namn", "booking_length": "Bokningslängd" },
       "yellow_tags": { "name": "Gul Anmärkning" },
       "red_tags": { "name": "Röd Anmärkning" },
       "days_to_go": { "name": "Dagar till Flygstopp" },
