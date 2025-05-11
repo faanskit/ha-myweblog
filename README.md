@@ -2,6 +2,55 @@
 
 This is a custom Home Assistant integration for [myWebLog](https://www.myweblog.se), allowing you to monitor and manage your club's airplanes directly from Home Assistant.
 
+## 🚧 Beta Phase Instructions
+
+This integration is currently in **beta**. We welcome early adopters, testers, and contributors!
+
+### 1. Install via Option 3
+As the integration is not yet available via the default HACS store, please install using [Option 3: Git-based Installation](#option-3-git-based-installation-with-symlink-advanced--dev-use).
+
+### 2. Report Bugs
+If you encounter any issues or unexpected behavior:
+- Please report them via [GitHub Issues](https://github.com/faanskit/ha-myweblog/issues).
+- Include relevant logs and reproduction steps when possible.
+
+### 3. Contribute with Code Style
+When contributing:
+- Format your code using **Black**:
+  ```bash
+  black .
+  ``` 
+- Check your code style using Flake8:
+  ```bash
+  flake8
+  ```
+- Follow [Home Assistant's Python Style Guide](https://developers.home-assistant.io/docs/development/python_style_guide/) for consistency. This includes naming conventions, async/await usage, docstrings, and structure.
+
+
+### 4. Follow Git Flow for Development
+If you're developing features or fixes:
+- Create a separate branch for each feature or bugfix:
+  ```bash
+  git checkout -b fix/something-broken
+  ```
+- Push your branch and submit a pull request (PR) to main when ready.
+
+We appreciate your help in shaping the future of this integration!
+
+## Features
+- **Multi-Airplane Support:** Select and monitor multiple airplanes during setup.
+Kopiera
+Redigera
+git checkout -b fix/something-broken
+Push your branch and submit a pull request (PR) to main when ready.
+
+We appreciate your help in shaping the future of this integration!
+
+yaml
+Kopiera
+Redigera
+
+
 ## Features
 - **Multi-Airplane Support:** Select and monitor multiple airplanes during setup.
 - **Booking Awareness:** Each airplane sensor shows the date/time of the next booking (as a timestamp).
@@ -26,25 +75,49 @@ This integration is not (currently) in the default HACS store, please add it as 
 5. Restart Home Assistant.
 6. **Add the "myWebLog" integration via the Home Assistant UI (Configuration → Devices & Services → Add Integration).**
 
-### Option 3: Git installation
+### Option 3: Git-based Installation with Symlink (Developer-Friendly)
 
-1. Make sure you have git installed on your machine.
-2. Navigate to your Home Assistant configuration directory (commonly `~/.homeassistant` or `/config`).
-3. If it doesn't exist, create a `custom_components` directory:
-   ```bash
-   mkdir -p custom_components
-   ```
-4. Change into the `custom_components` directory:
-   ```bash
-   cd custom_components
-   ```
-5. Clone the repository:
-   ```bash
-   git clone https://github.com/faanskit/ha-myweblog.git myweblog
-   ```
-   This will create a `myweblog` directory with all integration files inside.
-6. Restart Home Assistant.
-7. **Add the "myWebLog" integration via the Home Assistant UI (Configuration → Devices & Services → Add Integration).**
+> 🧪 Use this method if you want to keep integration code in a separate folder (e.g., for development, testing, or easy updates via `git pull`).
+
+#### 1. Open a terminal and go to your Home Assistant config directory:
+```bash
+cd /config
+``` 
+#### 2. Create a directory to hold GitHub repositories (if it doesn't already exist):
+```bash
+mkdir -p github_repos
+```
+#### 3. Clone the repository into that folder:
+When the repo is public, run:
+
+```bash
+git clone https://github.com/faanskit/ha-myweblog.git
+```
+During the beta phase, and the repo is private, use your GitHub username and a [personal access token (PAT)](https://github.com/settings/tokens) like this:
+
+```bash
+git clone https://<your-username>:<your-token>@github.com/faanskit/ha-myweblog.git
+```
+Example:
+
+```bash
+git clone https://mygithubuser:ghp_xxXyYzZzz123TOKENHERE@github.com/faanskit/ha-myweblog.git
+```
+
+🔐 Create your token [here](https://github.com/settings/tokens).
+
+✅ Make sure it has the repo scope if accessing a private repository.
+
+
+#### 4. Create a symlink from the `custom_components` directory to the repository:
+```bash
+cd /config/custom_components
+ln -s ../github_repos/ha-myweblog/custom_components/myweblog
+```
+This will link the myweblog integration into Home Assistant as if it were installed directly.
+
+#### 5. Restart Home Assistant.
+#### 6. Add the "myWebLog" integration via the Home Assistant UI (Configuration → Devices & Services → Add Integration).
 
 ## Configuration
 - Enter your myWebLog username and password during setup.
