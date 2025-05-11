@@ -39,20 +39,6 @@ We appreciate your help in shaping the future of this integration!
 
 ## Features
 - **Multi-Airplane Support:** Select and monitor multiple airplanes during setup.
-Kopiera
-Redigera
-git checkout -b fix/something-broken
-Push your branch and submit a pull request (PR) to main when ready.
-
-We appreciate your help in shaping the future of this integration!
-
-yaml
-Kopiera
-Redigera
-
-
-## Features
-- **Multi-Airplane Support:** Select and monitor multiple airplanes during setup.
 - **Booking Awareness:** Each airplane sensor shows the date/time of the next booking (as a timestamp).
 - **Maintenance & Flight Data:** Exposes maintenance, remarks, and flight data as individual sensors.
 - **Localization:** Handles local timezones for bookings and supports translations.
