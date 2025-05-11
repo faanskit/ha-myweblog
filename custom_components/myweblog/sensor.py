@@ -404,8 +404,10 @@ class MyWebLogAirplaneSensor(SensorEntity):
                     else:
                         booking_length = f"{minutes} min"
                 attrs["booking_length"] = booking_length
-            attrs["owner_name"] = fullname
-            attrs["student_name"] = student_name
+            if fullname is not None:
+                attrs["owner_name"] = fullname
+            if student_name is not None:
+                attrs["student_name"] = student_name
         return attrs
 
     def _get_airplane_obj(self):
