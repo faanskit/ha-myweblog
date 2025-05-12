@@ -223,13 +223,14 @@ mode: single
 This integration includes detailed logging for setup, configuration, data fetching, and sensor updates. Logs can help you troubleshoot connection issues, API errors, and integration behavior.
 
 **How to enable debug logging:**
-Add the following to your `configuration.yaml` to see detailed logs for this integration:
+Add the following to your `configuration.yaml` to see detailed logs for this integration and the supporting `pyMyweblog` package:
 
 ```yaml
 logger:
   default: info
   logs:
     custom_components.myweblog: debug
+    pyMyweblog: debug
 ```
 
 - Sensor creation, data updates, config flow steps, and errors are all logged.
