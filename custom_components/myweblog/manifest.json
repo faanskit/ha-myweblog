@@ -10,7 +10,7 @@
   "issue_tracker": "https://github.com/faanskit/ha-myweblog/issues",
   "requirements": ["pyMyweblog==0.5.2"],
   "ssdp": [],
-  "version": "0.1.7",
+  "version": "0.1.6",
   "zeroconf": [],
   "translation_files": ["translations/*.json"]
 }
