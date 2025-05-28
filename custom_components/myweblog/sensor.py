@@ -20,7 +20,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import (
+    CoordinatorEntity,
+    DataUpdateCoordinator,
+)
 
 from .const import BOOKINGS_UPDATE_INTERVAL, DOMAIN, OBJECTS_UPDATE_INTERVAL
 
@@ -55,7 +58,16 @@ SENSOR_TYPES = {
         translation_key="days_to_go",
         state_class=SensorStateClass.MEASUREMENT,
         device_class=SensorDeviceClass.DURATION,
-        unit_of_measurement="d",
+        native_unit_of_measurement="d",
+    ),
+    "days_to_flight_stop": SensorEntityDescription(
+        key="days_to_flight_stop",
+        name="Days to Go (Flight Stop)",
+        icon="mdi:calendar-alert",
+        translation_key="days_to_flight_stop",
+        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement="d",
     ),
     "hours_to_go": SensorEntityDescription(
         key="hours_to_go",
@@ -64,7 +76,16 @@ SENSOR_TYPES = {
         translation_key="hours_to_go",
         state_class=SensorStateClass.MEASUREMENT,
         device_class=SensorDeviceClass.DURATION,
-        unit_of_measurement="h",
+        native_unit_of_measurement="h",
+    ),
+    "hours_to_flight_stop": SensorEntityDescription(
+        key="hours_to_flight_stop",
+        name="Hours to Go (Flight Stop)",
+        icon="mdi:clock-alert-outline",
+        translation_key="hours_to_flight_stop",
+        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement="h",
     ),
     "airborne": SensorEntityDescription(
         key="airborne",
@@ -73,7 +94,7 @@ SENSOR_TYPES = {
         translation_key="airborne",
         state_class=SensorStateClass.TOTAL,
         device_class=SensorDeviceClass.DURATION,
-        unit_of_measurement="h",
+        native_unit_of_measurement="h",
     ),
     "block": SensorEntityDescription(
         key="block",
@@ -82,7 +103,7 @@ SENSOR_TYPES = {
         translation_key="block",
         state_class=SensorStateClass.TOTAL,
         device_class=SensorDeviceClass.DURATION,
-        unit_of_measurement="h",
+        native_unit_of_measurement="h",
     ),
     "tachometer": SensorEntityDescription(
         key="tachometer",
@@ -91,7 +112,7 @@ SENSOR_TYPES = {
         translation_key="tachometer",
         state_class=SensorStateClass.TOTAL,
         device_class=SensorDeviceClass.DURATION,
-        unit_of_measurement="h",
+        native_unit_of_measurement="h",
     ),
     "tach_time": SensorEntityDescription(
         key="tach_time",
@@ -100,7 +121,7 @@ SENSOR_TYPES = {
         translation_key="tach_time",
         state_class=SensorStateClass.TOTAL,
         device_class=SensorDeviceClass.DURATION,
-        unit_of_measurement="h",
+        native_unit_of_measurement="h",
     ),
     "landings": SensorEntityDescription(
         key="landings",
@@ -134,6 +155,13 @@ async def async_setup_entry(
     password = config_entry.data.get("password")
     app_token = config_entry.data.get("app_token")
     airplanes = config_entry.data.get("airplanes", [])
+
+    if (
+        not isinstance(username, str)
+        or not isinstance(password, str)
+        or not isinstance(app_token, str)
+    ):
+        raise TypeError("Missing or invalid credentials for myWebLog integration")
 
     async def async_update_objects():
         _LOGGER.debug("Fetching objects for username=%s", username)
@@ -189,7 +217,7 @@ async def async_setup_entry(
     async_add_entities(sensors, True)
 
 
-class MyWebLogAirplaneSensor(SensorEntity):
+class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
     """Sensor entity for a specific metric of a myWebLog airplane."""
 
     def __init__(
@@ -200,8 +228,9 @@ class MyWebLogAirplaneSensor(SensorEntity):
         description: SensorEntityDescription,
     ) -> None:
         """Initialize the sensor entity."""
+        # Initialize with the objects_coordinator as the main coordinator
+        super().__init__(objects_coordinator)
         self.entity_description = description
-        self._objects_coordinator = objects_coordinator
         self._bookings_coordinator = bookings_coordinator
         self._airplane_id = airplane["id"]
         self._airplane_regnr = airplane["regnr"]
@@ -215,11 +244,36 @@ class MyWebLogAirplaneSensor(SensorEntity):
             model=self._airplane_title,
         )
         self._next_booking_obj = None
+        self._attr_should_poll = False  # We use coordinator for updates
         _LOGGER.debug(
             "Created sensor: regnr=%s, key=%s, unique_id=%s",
             self._airplane_regnr,
             description.key,
             self._attr_unique_id,
+        )
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        # Add listener for bookings coordinator updates
+        self.async_on_remove(
+            self._bookings_coordinator.async_add_listener(self._handle_bookings_update)
+        )
+        # Initial update
+        self._handle_bookings_update()
+
+    def _handle_bookings_update(self) -> None:
+        """Handle updated data from the bookings coordinator."""
+        # Force a state update when bookings change
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return (
+            super().available
+            and self.coordinator.data is not None
+            and self._bookings_coordinator.data is not None
         )
 
     def _get_yellow_tags(self, obj):
@@ -235,13 +289,14 @@ class MyWebLogAirplaneSensor(SensorEntity):
     def _get_days_to_go(self, obj):
         return obj.get("maintTimeDate", {}).get("daysToGoValue", 0)
 
+    def _get_days_to_flight_stop(self, obj):
+        return obj.get("maintTimeDate", {}).get("flightStop_daysToGoValue", 0)
+
     def _get_hours_to_go(self, obj):
-        value = obj.get("maintTimeDate", {}).get("hoursToGoValue", 0)
-        try:
-            value = float(value)
-        except (TypeError, ValueError):
-            return value
-        return round(value, 2)
+        return round(float(obj.get("maintTimeDate", {}).get("hoursToGoValue", 0)), 2)
+
+    def _get_hours_to_flight_stop(self, obj):
+        return round(float(obj.get("maintTimeDate", {}).get("flightStop_hoursToGoValue", 0)), 2)
 
     def _get_airborne(self, obj):
         try:
@@ -251,7 +306,7 @@ class MyWebLogAirplaneSensor(SensorEntity):
         try:
             value = float(value)
         except (TypeError, ValueError):
-            return value
+            return obj.get("ftData", {}).get("landings", 0)
         return round(value, 2)
 
     def _get_block(self, obj):
@@ -300,7 +355,7 @@ class MyWebLogAirplaneSensor(SensorEntity):
         return obj.get("clubname")
 
     def _get_next_booking(self, obj):
-        bookings = self._get_airplane_bookings()
+        bookings = self._bookings_coordinator.data or []
         if not bookings:
             self._next_booking_obj = None
             return None
@@ -332,6 +387,9 @@ class MyWebLogAirplaneSensor(SensorEntity):
     @property
     def state(self) -> StateType:
         """Return the state of the sensor."""
+        if not self.available:
+            return None
+
         obj = self._get_airplane_obj()
         if obj is None:
             _LOGGER.warning(
@@ -346,6 +404,8 @@ class MyWebLogAirplaneSensor(SensorEntity):
             "red_tags": self._get_red_tags,
             "days_to_go": self._get_days_to_go,
             "hours_to_go": self._get_hours_to_go,
+            "days_to_flight_stop": self._get_days_to_flight_stop,
+            "hours_to_flight_stop": self._get_hours_to_flight_stop,
             "airborne": self._get_airborne,
             "block": self._get_block,
             "tachometer": self._get_tachometer,
@@ -357,9 +417,8 @@ class MyWebLogAirplaneSensor(SensorEntity):
         }
 
         if key in dispatch:
-            value = dispatch[key](obj)
-            _LOGGER.debug("Sensor %s (%s): state=%s", self._airplane_regnr, key, value)
-            return value
+            return dispatch[key](obj)
+
         _LOGGER.warning(
             "Unknown sensor key: %s for regnr=%s", key, self._airplane_regnr
         )
@@ -367,57 +426,63 @@ class MyWebLogAirplaneSensor(SensorEntity):
 
     @property
     def extra_state_attributes(self):
-        """Return extra state attributes for the sensor.
-
-        Sets the 'icon_color' attribute dynamically for Home Assistant 2023.4+:
-        - For 'red_tags' sensors: sets icon color to red if value > 0.
-        - For 'yellow_tags' sensors: sets icon color to yellow if value > 0.
-        This allows the icon color to reflect the sensor state in the UI.
-        Adds booking owner fullname for next_booking sensor.
-        """
-        attrs = super().extra_state_attributes or {}
+        """Return extra state attributes for the sensor."""
+        attrs = dict(super().extra_state_attributes or {})
         key = self.entity_description.key
         state = self.state
+
+        # Set icon colors for tag sensors
         if key == "red_tags" and isinstance(state, int) and state > 0:
             attrs["icon_color"] = "red"
         elif key == "yellow_tags" and isinstance(state, int) and state > 0:
             attrs["icon_color"] = "yellow"
+
+        # Add booking information for next_booking sensor
         if key == "next_booking":
-            # Try to get the fullname and elev_fullname from the booking object
-            fullname = None
-            student_name = None
             next_booking_obj = getattr(self, "_next_booking_obj", None)
             if next_booking_obj:
+                # Add booking owner information
                 fullname = next_booking_obj.get("fullname")
-                student_name = next_booking_obj.get("elev_fullname")
-                # Calculate booking length in seconds if both bStart and bEnd are present
-                booking_length = None
+                student_name = next_booking_obj.get("extra_elev_fullname")
+
+                if fullname:
+                    attrs["booked_by"] = fullname
+                if student_name and student_name.strip() not in ("", " "):
+                    attrs["student_name"] = student_name.strip()
+
+                # Calculate booking length
                 b_start = next_booking_obj.get("bStart")
                 b_end = next_booking_obj.get("bEnd")
                 if isinstance(b_start, (int, float)) and isinstance(
                     b_end, (int, float)
                 ):
-                    total_minutes = int((b_end - b_start) / 60)
-                    hours, minutes = divmod(total_minutes, 60)
-                    if hours > 0:
-                        booking_length = f"{hours} hr {minutes} min"
-                    else:
-                        booking_length = f"{minutes} min"
-                attrs["booking_length"] = booking_length
-            if fullname is not None:
-                attrs["owner_name"] = fullname
-            if student_name is not None:
-                attrs["student_name"] = student_name
+                    total_seconds = b_end - b_start
+                    total_minutes = int(total_seconds / 60)
+                    minutes = total_minutes % 60
+                    total_hours = total_minutes // 60
+                    hours = total_hours % 24
+                    days = total_hours // 24
+
+                    # Format the duration string
+                    parts = []
+                    if days > 0:
+                        parts.append(f"{days} day{'s' if days != 1 else ''}")
+                    if hours > 0 or days > 0:  # Show hours if there are days or hours
+                        parts.append(f"{hours} hr{'s' if hours != 1 else ''}")
+                    parts.append(f"{minutes} min")
+
+                    attrs["booking_length"] = " ".join(parts)
+
         return attrs
 
     def _get_airplane_obj(self):
-        data = self._objects_coordinator.data
-        if not data:
+        if not self.coordinator.data:
             return None
-        return next((obj for obj in data if obj.get("ID") == self._airplane_id), None)
-
-    def _get_airplane_bookings(self):
-        data = self._bookings_coordinator.data
-        if not data:
-            return []
-        return data
+        return next(
+            (
+                obj
+                for obj in self.coordinator.data
+                if isinstance(obj, dict) and obj.get("ID") == self._airplane_id
+            ),
+            None,
+        )

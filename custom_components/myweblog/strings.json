@@ -33,6 +33,8 @@
       "red_tags": { "name": "Red Tags" },
       "days_to_go": { "name": "Days to Go (Maintenance)" },
       "hours_to_go": { "name": "Hours to Go (Maintenance)" },
+      "days_to_flight_stop": { "name": "Days to Go (Flight Stop)" },
+      "hours_to_flight_stop": { "name": "Hours to Go (Flight Stop)" },
       "airborne": { "name": "Airborne" },
       "block": { "name": "Block" },
       "tachometer": { "name": "Tachometer" },

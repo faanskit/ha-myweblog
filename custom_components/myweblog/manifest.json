@@ -8,9 +8,9 @@
   "homekit": {},
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/faanskit/ha-myweblog/issues",
-  "requirements": ["pyMyweblog==0.5.2"],
+  "requirements": ["pyMyweblog==0.5.4"],
   "ssdp": [],
-  "version": "0.1.6",
+  "version": "0.1.7",
   "zeroconf": [],
   "translation_files": ["translations/*.json"]
 }
