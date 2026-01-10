@@ -8,6 +8,7 @@
   "homekit": {},
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/faanskit/ha-myweblog/issues",
+  "quality_scale": "silver",
   "requirements": ["pyMyweblog==0.5.4"],
   "ssdp": [],
   "version": "0.1.7",

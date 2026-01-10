@@ -16,6 +16,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -23,6 +24,7 @@ from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
+    UpdateFailed,
 )
 
 from .const import BOOKINGS_UPDATE_INTERVAL, DOMAIN, OBJECTS_UPDATE_INTERVAL
@@ -135,12 +137,14 @@ SENSOR_TYPES = {
         name="Model",
         icon="mdi:alpha-m-circle-outline",
         translation_key="model",
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     "club": SensorEntityDescription(
         key="club",
         name="Club",
         icon="mdi:account-group",
         translation_key="club",
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
 }
 
@@ -170,9 +174,8 @@ async def async_setup_entry(
                 result = await client.getObjects()
                 _LOGGER.debug("Fetched objects: %s", result)
                 return result.get("Object", [])
-        except (ValueError, KeyError, TypeError) as e:
-            _LOGGER.error("Error fetching objects: %s", e)
-            return []
+        except Exception as e:
+            raise UpdateFailed(f"Error fetching objects: {e}") from e
 
     objects_coordinator = DataUpdateCoordinator(
         hass,
@@ -194,11 +197,10 @@ async def async_setup_entry(
                     result = await client.getBookings(airplane_id)
                     _LOGGER.debug("Fetched bookings: %s", result)
                     return result.get("Booking", [])
-            except (ValueError, KeyError, TypeError) as e:
-                _LOGGER.error(
-                    "Error fetching bookings for airplane_id=%s: %s", airplane_id, e
-                )
-                return []
+            except Exception as e:
+                raise UpdateFailed(
+                    f"Error fetching bookings for airplane_id={airplane_id}: {e}"
+                ) from e
 
         bookings_coordinator = DataUpdateCoordinator(
             hass,
@@ -296,7 +298,9 @@ class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
         return round(float(obj.get("maintTimeDate", {}).get("hoursToGoValue", 0)), 2)
 
     def _get_hours_to_flight_stop(self, obj):
-        return round(float(obj.get("maintTimeDate", {}).get("flightStop_hoursToGoValue", 0)), 2)
+        return round(
+            float(obj.get("maintTimeDate", {}).get("flightStop_hoursToGoValue", 0)), 2
+        )
 
     def _get_airborne(self, obj):
         try:

@@ -1,5 +1,8 @@
 # myWebLog Home Assistant Integration
 
+![Quality Scale: Silver](https://img.shields.io/badge/Quality%20Scale-Silver-lightgrey.svg)
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+
 This is a custom Home Assistant integration for [myWebLog](https://www.myweblog.se), allowing you to monitor and manage your club's airplanes directly from Home Assistant.
 
 ## 🚧 Beta Phase Instructions
@@ -238,6 +241,29 @@ logger:
 
 ## License
 See [LICENSE](LICENSE).
+
+## Development & Testing
+
+### Running Tests
+To run the test suite, you need to install the development requirements first. It is recommended to use a virtual environment.
+
+1. Install testing dependencies:
+   ```bash
+   pip install pytest-homeassistant-custom-component
+   ```
+
+2. Run the tests using `pytest`:
+   ```bash
+   pytest
+   ```
+
+**NOTE**
+You may have to patch your `PYTHONPATH` to run this
+```
+$env:PYTHONPATH = "$PWD"; pytest
+```
+
+The test suite covers configuration flow, sensor setup, and basic data updates. We aim for high coverage to ensure reliability across Home Assistant updates.
 
 ## Credits
 - Integration by [Marcus Karlsson](https://github.com/faanskit)

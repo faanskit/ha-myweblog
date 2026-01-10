@@ -31,7 +31,7 @@ async def validate_credentials(hass: HomeAssistant, username: str, password: str
     """Validate the user credentials and return (airplanes, app_token)."""
     _LOGGER.debug("Validating credentials for username=%s", username)
     try:
-        async with MyWebLogClient(username, password, app_token=None) as client:
+        async with MyWebLogClient(username, password, app_token="") as client:
             app_token = await client.obtainAppToken(APP_SECRET)
             result = await client.getObjects()
 
@@ -59,6 +59,12 @@ async def validate_credentials(hass: HomeAssistant, username: str, password: str
 
     except Exception as err:
         _LOGGER.error("Credential validation failed for username=%s: %s", username, err)
+        if (
+            "Ogiltigt" in str(err)
+            or "Invalid" in str(err)
+            or "auth" in str(err).lower()
+        ):
+            raise InvalidAuth from err
         raise CannotConnect from err
 
 
@@ -98,6 +104,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     user_input.get("username"),
                 )
                 errors["base"] = "cannot_connect"
+            except InvalidAuth:
+                _LOGGER.error(
+                    "Config flow: invalid auth for username=%s",
+                    user_input.get("username"),
+                )
+                errors["base"] = "invalid_auth"
             except Exception:
                 _LOGGER.exception("Config flow: unexpected exception")
                 errors["base"] = "unknown"
