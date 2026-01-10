@@ -179,7 +179,7 @@ condition:
       {% set current_time = as_timestamp(now()) %}
       {% set time_diff = booking_time - current_time %}
       {% set window = 300 %}  # 5 minutes in seconds
-      {{ time_diff > 0 and time_diff <= 3600 and time_diff >= (3600 - window) }}
+      {{ 0 < time_diff <= 60 }}
 action:
   - service: switch.turn_on
     target:
@@ -213,7 +213,7 @@ mode: single
 **Action**: Turns off the heater.
 
 ## Options & Customization
-- To change selected airplanes after setup, remove and re-add the integration (options flow coming soon).
+- To change selected airplanes after setup, remove and re-add the integration (Options Flow coming with GOLD standard).
 - All API credentials and tokens are stored securely in your Home Assistant config.
 - You can add or update translations by editing the `en.json`, `sv.json`, or other language files in the `translations` directory.
 - Sensor state_class and device_class can be customized for advanced Home Assistant statistics and energy dashboard support.
