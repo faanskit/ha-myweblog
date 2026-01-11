@@ -1,8 +1,8 @@
 from unittest.mock import patch, AsyncMock
-from homeassistant.config_entries import ConfigEntryState
-from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import ConfigEntryState  # type: ignore[import]
+from homeassistant.core import HomeAssistant  # type: ignore[import]
 from custom_components.myweblog.const import DOMAIN
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import MockConfigEntry  # type: ignore[import]
 
 
 async def test_setup_unload_entry(hass: HomeAssistant) -> None:

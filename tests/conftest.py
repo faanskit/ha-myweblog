@@ -1,5 +1,5 @@
 """Fixtures for testing MyWeblog integration."""
-import pytest
+import pytest  # type: ignore[import]
 
 
 @pytest.fixture(autouse=True)

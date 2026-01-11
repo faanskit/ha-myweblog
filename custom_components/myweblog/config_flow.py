@@ -7,13 +7,13 @@ import re
 from typing import Any
 
 from pyMyweblog import MyWebLogClient
-import voluptuous as vol
+import voluptuous as vol  # type: ignore[import]
 
-from homeassistant import config_entries
-from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResult
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import config_validation as cv
+from homeassistant import config_entries  # type: ignore[import]
+from homeassistant.core import HomeAssistant  # type: ignore[import]
+from homeassistant.data_entry_flow import FlowResult  # type: ignore[import]
+from homeassistant.exceptions import HomeAssistantError  # type: ignore[import]
+from homeassistant.helpers import config_validation as cv  # type: ignore[import]
 
 from .const import APP_SECRET, DOMAIN
 
@@ -41,7 +41,9 @@ def is_auth_error(err: Exception) -> bool:
     )
 
 
-async def validate_credentials(hass: HomeAssistant, username: str, password: str):
+async def validate_credentials(
+    hass: HomeAssistant, username: str, password: str
+) -> tuple[list[dict[str, Any]], str]:
     """Validate the user credentials and return (airplanes, app_token)."""
     _LOGGER.debug("Validating credentials for username=%s", username)
     try:
@@ -69,7 +71,7 @@ async def validate_credentials(hass: HomeAssistant, username: str, password: str
                 username,
                 len(airplanes),
             )
-            return airplanes, app_token
+            return airplanes, app_token or ""
 
     except Exception as err:
         _LOGGER.error("Credential validation failed for username=%s: %s", username, err)
@@ -78,7 +80,7 @@ async def validate_credentials(hass: HomeAssistant, username: str, password: str
         raise CannotConnect from err
 
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[misc]
     """Handle a config flow for MyWeblog."""
 
     VERSION = 1
@@ -89,6 +91,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._password = None
         self._airplanes = []
         self._app_token = None
+
+    @staticmethod
+    @config_entries.callback
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> config_entries.OptionsFlow:
+        """Get the options flow for this handler."""
+        return OptionsFlowHandler(config_entry)
 
     async def async_step_reauth(
         self, user_input: dict[str, Any] | None = None
@@ -230,6 +240,113 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _get_reauth_entry(self) -> config_entries.ConfigEntry | None:
         """Get the config entry being re-authenticated."""
         return self.hass.config_entries.async_get_entry(self.context["entry_id"])
+
+
+class OptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle options flow for MyWeblog."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle options flow initialization."""
+        _LOGGER.debug("Starting options flow")
+        return await self.async_step_options(user_input)
+
+    async def async_step_options(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle options flow for airplane selection."""
+        _LOGGER.debug("Starting options flow: step_options")
+        errors = {}
+        entry = self.config_entry
+
+        username = entry.data.get("username")
+        password = entry.data.get("password")
+        current_airplanes = entry.data.get("airplanes", [])
+        current_regnrs = {plane["regnr"] for plane in current_airplanes}
+
+        if user_input is not None:
+            try:
+                # Fetch available airplanes from API
+                airplanes, app_token = await validate_credentials(
+                    self.hass, username, password
+                )
+
+                # Find selected airplanes
+                selected_regnrs = set(user_input.get("airplanes", []))
+                selected_planes = [
+                    plane for plane in airplanes if plane["regnr"] in selected_regnrs
+                ]
+
+                if not selected_planes:
+                    errors["base"] = "no_airplanes_selected"
+                else:
+                    # Update the config entry
+                    planes_data = [
+                        {
+                            "id": plane["id"],
+                            "regnr": plane["regnr"],
+                            "title": plane["title"],
+                        }
+                        for plane in selected_planes
+                    ]
+
+                    planes_count = len(planes_data)
+                    title = f"MyWeblog ({username} - {planes_count} {'plane' if planes_count == 1 else 'planes'})"
+
+                    _LOGGER.info(
+                        "Options flow: updating to %d airplanes for user %s",
+                        planes_count,
+                        username,
+                    )
+
+                    self.hass.config_entries.async_update_entry(
+                        entry,
+                        title=title,
+                        data={
+                            **entry.data,
+                            "airplanes": planes_data,
+                            "app_token": app_token,
+                        },
+                    )
+                    await self.hass.config_entries.async_reload(entry.entry_id)
+                    return self.async_create_entry(title="", data={})
+            except CannotConnect:
+                _LOGGER.error("Options flow: cannot connect")
+                errors["base"] = "cannot_connect"
+            except InvalidAuth:
+                _LOGGER.error("Options flow: invalid credentials")
+                errors["base"] = "invalid_auth"
+            except Exception:
+                _LOGGER.exception("Options flow: unexpected exception")
+                errors["base"] = "unknown"
+
+        # Fetch available airplanes for the form
+        try:
+            airplanes, _ = await validate_credentials(self.hass, username, password)
+        except Exception as err:
+            _LOGGER.error("Options flow: failed to fetch airplanes: %s", err)
+            # Use current airplanes if we can't fetch new ones
+            airplanes = current_airplanes
+
+        # Create mapping of registration numbers to plane data
+        airplane_titles = {plane["regnr"]: plane["title"] for plane in airplanes}
+
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    "airplanes", default=list(current_regnrs)
+                ): cv.multi_select(airplane_titles)
+            }
+        )
+
+        return self.async_show_form(
+            step_id="options", data_schema=schema, errors=errors
+        )
 
 
 class CannotConnect(HomeAssistantError):
