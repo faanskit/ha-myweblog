@@ -27,6 +27,20 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
+def is_auth_error(err: Exception) -> bool:
+    """Check if an exception indicates an authentication error."""
+    err_str = str(err).lower()
+    return (
+        "ogiltigt" in err_str
+        or "invalid" in err_str
+        or "auth" in err_str
+        or "unauthorized" in err_str
+        or "forbidden" in err_str
+        or "401" in err_str
+        or "403" in err_str
+    )
+
+
 async def validate_credentials(hass: HomeAssistant, username: str, password: str):
     """Validate the user credentials and return (airplanes, app_token)."""
     _LOGGER.debug("Validating credentials for username=%s", username)
@@ -59,11 +73,7 @@ async def validate_credentials(hass: HomeAssistant, username: str, password: str
 
     except Exception as err:
         _LOGGER.error("Credential validation failed for username=%s: %s", username, err)
-        if (
-            "Ogiltigt" in str(err)
-            or "Invalid" in str(err)
-            or "auth" in str(err).lower()
-        ):
+        if is_auth_error(err):
             raise InvalidAuth from err
         raise CannotConnect from err
 
@@ -79,6 +89,53 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._password = None
         self._airplanes = []
         self._app_token = None
+
+    async def async_step_reauth(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle re-authentication."""
+        _LOGGER.debug("Starting re-authentication flow")
+        errors = {}
+        entry = self._get_reauth_entry()
+
+        if user_input is not None:
+            try:
+                airplanes, app_token = await validate_credentials(
+                    self.hass, user_input["username"], user_input["password"]
+                )
+                _LOGGER.info(
+                    "Re-authentication successful for %s", user_input["username"]
+                )
+
+                # Update the config entry with new credentials
+                if entry is not None:
+                    self.hass.config_entries.async_update_entry(
+                        entry,
+                        data={
+                            **entry.data,
+                            "username": user_input["username"],
+                            "password": user_input["password"],
+                            "app_token": app_token,
+                        },
+                    )
+                    await self.hass.config_entries.async_reload(entry.entry_id)
+                return self.async_abort(reason="reauth_successful")
+            except CannotConnect:
+                _LOGGER.error("Re-auth: cannot connect")
+                errors["base"] = "cannot_connect"
+            except InvalidAuth:
+                _LOGGER.error("Re-auth: invalid credentials")
+                errors["base"] = "invalid_auth"
+            except Exception:
+                _LOGGER.exception("Re-auth: unexpected exception")
+                errors["base"] = "unknown"
+
+        return self.async_show_form(
+            step_id="reauth",
+            data_schema=STEP_USER_DATA_SCHEMA,
+            errors=errors,
+            description_placeholders={"username": entry.title if entry else "Unknown"},
+        )
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -169,6 +226,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="select_airplane", data_schema=schema, errors=errors
         )
+
+    def _get_reauth_entry(self) -> config_entries.ConfigEntry | None:
+        """Get the config entry being re-authenticated."""
+        return self.hass.config_entries.async_get_entry(self.context["entry_id"])
 
 
 class CannotConnect(HomeAssistantError):

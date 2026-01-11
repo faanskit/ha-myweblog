@@ -26,8 +26,10 @@ from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
 )
+from homeassistant import config_entries
 
 from .const import BOOKINGS_UPDATE_INTERVAL, DOMAIN, OBJECTS_UPDATE_INTERVAL
+from .config_flow import is_auth_error
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -175,6 +177,23 @@ async def async_setup_entry(
                 _LOGGER.debug("Fetched objects: %s", result)
                 return result.get("Object", [])
         except Exception as e:
+            if is_auth_error(e):
+                _LOGGER.warning(
+                    "Authentication error detected, triggering re-authentication"
+                )
+                hass.async_create_task(
+                    hass.config_entries.flow.async_init(
+                        DOMAIN,
+                        context={
+                            "source": config_entries.SOURCE_REAUTH,
+                            "entry_id": config_entry.entry_id,
+                        },
+                        data=config_entry.data,
+                    )
+                )
+                raise UpdateFailed(
+                    "Authentication failed, please re-authenticate"
+                ) from e
             raise UpdateFailed(f"Error fetching objects: {e}") from e
 
     objects_coordinator = DataUpdateCoordinator(
@@ -198,6 +217,23 @@ async def async_setup_entry(
                     _LOGGER.debug("Fetched bookings: %s", result)
                     return result.get("Booking", [])
             except Exception as e:
+                if is_auth_error(e):
+                    _LOGGER.warning(
+                        "Authentication error detected, triggering re-authentication"
+                    )
+                    hass.async_create_task(
+                        hass.config_entries.flow.async_init(
+                            DOMAIN,
+                            context={
+                                "source": config_entries.SOURCE_REAUTH,
+                                "entry_id": config_entry.entry_id,
+                            },
+                            data=config_entry.data,
+                        )
+                    )
+                    raise UpdateFailed(
+                        "Authentication failed, please re-authenticate"
+                    ) from e
                 raise UpdateFailed(
                     f"Error fetching bookings for airplane_id={airplane_id}: {e}"
                 ) from e

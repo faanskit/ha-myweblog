@@ -15,6 +15,14 @@
         },
         "description": "Välj flygplanen du vill övervaka. Du kan välja flera flygplan.",
         "title": "Välj Flygplan för myWebLog"
+      },
+      "reauth": {
+        "data": {
+          "username": "Användarnamn",
+          "password": "Lösenord"
+        },
+        "description": "Dina myWebLog-inloggningsuppgifter är inte längre giltiga. Ange dina inloggningsuppgifter igen.",
+        "title": "Återautentisera myWebLog"
       }
     },
     "error": {
@@ -23,7 +31,8 @@
       "unknown": "Oväntat fel"
     },
     "abort": {
-      "already_configured": "Kontot är redan konfigurerat"
+      "already_configured": "Kontot är redan konfigurerat",
+      "reauth_successful": "Återautentisering lyckades"
     }
   },
   "entity": {

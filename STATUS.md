@@ -13,6 +13,11 @@ The integration is fully functional and meets all Silver tier requirements, incl
 - [x] Integration uses `DataUpdateCoordinator` with proper `UpdateFailed` reporting.
 - [x] Integration has a passing test suite with good coverage.
 - [x] Appropriate sensors marked as `EntityCategory.DIAGNOSTIC`.
+- [x] **Re-authentication flow implemented** - automatically triggers when credentials expire.
+- [x] Error handling prevents log clutter (uses appropriate log levels, UpdateFailed for coordinators).
+- [x] Active code owner specified in manifest.
+- [x] Comprehensive documentation in README.
+- [x] **All tests passing** - including comprehensive re-authentication tests.
 
 ---
 
@@ -36,7 +41,7 @@ Our goal is to reach the **Platinum** level. Now that we have reached Silver, we
 
 ## Short Term Plan (Target: Gold)
 1. **Options Flow**: Implement `OptionsFlow` to allow users to add/remove airplanes after initial setup.
-2. **Re-authentication**: Implement re-auth flow for handling expired credentials.
+2. ~~**Re-authentication**: Implement re-auth flow for handling expired credentials.~~ ✅ **COMPLETED**
 3. **Enhanced Diagnostics**: Ensure all relevant technical metrics are available as diagnostic entities.
 4. **Testing**: Expand test coverage to reach Gold standards (100% coverage for core logic).
 5. **Entity Descriptions**: Use typed `SensorEntityDescription` more effectively.
