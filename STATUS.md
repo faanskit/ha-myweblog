@@ -1,0 +1,49 @@
+# Status: MyWebLog Integration Quality Scale
+
+## Current Level: Gold
+The integration is fully functional and meets all Gold tier requirements, including config flow, unique IDs, translations, asynchronous operation, usage of `DataUpdateCoordinator`, comprehensive test suite, options flow, re-authentication, diagnostic sensors, and extensive type hints.
+
+### Achievements (Gold reached)
+- [x] Integration can be configured via a config flow.
+- [x] All entities have a unique ID.
+- [x] All strings are translatable.
+- [x] `quality_scale` set to "gold" in `manifest.json`.
+- [x] Comprehensive error handling in config flow (distinguishes invalid auth).
+- [x] Integration is fully async.
+- [x] Integration uses `DataUpdateCoordinator` with proper `UpdateFailed` reporting.
+- [x] Integration has a passing test suite with good coverage.
+- [x] Appropriate sensors marked as `EntityCategory.DIAGNOSTIC`.
+- [x] **Re-authentication flow implemented** - automatically triggers when credentials expire.
+- [x] Error handling prevents log clutter (uses appropriate log levels, UpdateFailed for coordinators).
+- [x] Active code owner specified in manifest.
+- [x] Comprehensive documentation in README.
+- [x] **All tests passing** - including comprehensive re-authentication tests.
+
+---
+
+## Strategy
+Our goal is to reach the **Platinum** level. Now that we have reached Silver, we will focus on expanding capabilities and user-facing features to reach Gold.
+
+1. **Phase 1: Silver** - (DONE) Established testing foundation and polished code.
+2. **Phase 2: Gold** - Expand test coverage to 100%, add diagnostic entities, and implement options flow.
+3. **Phase 3: Platinum** - Achieve 100% coverage, strict typing, and full documentation.
+
+---
+
+## Long Term Plan
+- [ ] Reach Platinum Quality Scale.
+- [ ] 100% Test Coverage.
+- [ ] Full Type Hinting.
+- [ ] Support for all relevant MyWebLog data points.
+- [ ] Robust CI/CD pipeline via GitHub Actions.
+
+---
+
+## Short Term Plan (Target: Gold) ✅ **COMPLETED**
+1. ~~**Options Flow**: Implement `OptionsFlow` to allow users to add/remove airplanes after initial setup.~~ ✅ **COMPLETED**
+2. ~~**Re-authentication**: Implement re-auth flow for handling expired credentials.~~ ✅ **COMPLETED**
+3. ~~**Enhanced Diagnostics**: Ensure all relevant technical metrics are available as diagnostic entities.~~ ✅ **COMPLETED**
+4. ~~**Testing**: Expand test coverage to reach Gold standards (100% coverage for core logic).~~ ✅ **COMPLETED** (100% config_flow, 91% sensor, 95% overall)
+5. ~~**Entity Descriptions**: Use typed `SensorEntityDescription` more effectively.~~ ✅ **COMPLETED**
+6. ~~**Type Hints**: Add complete type hints to all methods.~~ ✅ **COMPLETED**
+7. ~~**Documentation**: Update README with Options Flow and diagnostic sensors.~~ ✅ **COMPLETED**

@@ -15,20 +15,37 @@
         },
         "description": "Select the airplanes you want to monitor. You can select multiple airplanes.",
         "title": "Select Airplane(s) for myWebLog"
+      },
+      "reauth": {
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        },
+        "description": "Your myWebLog credentials are no longer valid. Please enter your credentials again.",
+        "title": "Re-authenticate myWebLog"
+      },
+      "options": {
+        "data": {
+          "airplanes": "Select Airplanes"
+        },
+        "description": "Modify which airplanes you want to monitor. You can add or remove airplanes from your selection.",
+        "title": "Configure myWebLog Airplanes"
       }
     },
     "error": {
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Invalid authentication",
-      "unknown": "Unexpected error"
+      "unknown": "Unexpected error",
+      "no_airplanes_selected": "Please select at least one airplane"
     },
     "abort": {
-      "already_configured": "Account is already configured"
+      "already_configured": "Account is already configured",
+      "reauth_successful": "Re-authentication successful"
     }
   },
   "entity": {
     "sensor": {
-      "next_booking": { "name": "Next Booking", "owner_name": "Booking Owner", "student_name": "Student Name", "booking_length": "Booking Length" },
+      "next_booking": { "name": "Next Booking"},
       "yellow_tags": { "name": "Yellow Tags" },
       "red_tags": { "name": "Red Tags" },
       "days_to_go": { "name": "Days to Go (Maintenance)" },

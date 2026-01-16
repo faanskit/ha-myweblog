@@ -15,20 +15,37 @@
         },
         "description": "Välj flygplanen du vill övervaka. Du kan välja flera flygplan.",
         "title": "Välj Flygplan för myWebLog"
+      },
+      "reauth": {
+        "data": {
+          "username": "Användarnamn",
+          "password": "Lösenord"
+        },
+        "description": "Dina myWebLog-inloggningsuppgifter är inte längre giltiga. Ange dina inloggningsuppgifter igen.",
+        "title": "Återautentisera myWebLog"
+      },
+      "options": {
+        "data": {
+          "airplanes": "Välj Flygplan"
+        },
+        "description": "Ändra vilka flygplan du vill övervaka. Du kan lägga till eller ta bort flygplan från ditt val.",
+        "title": "Konfigurera myWebLog Flygplan"
       }
     },
     "error": {
       "cannot_connect": "Det gick inte att ansluta",
       "invalid_auth": "Ogiltiga inloggningsuppgifter",
-      "unknown": "Oväntat fel"
+      "unknown": "Oväntat fel",
+      "no_airplanes_selected": "Välj minst ett flygplan"
     },
     "abort": {
-      "already_configured": "Kontot är redan konfigurerat"
+      "already_configured": "Kontot är redan konfigurerat",
+      "reauth_successful": "Återautentisering lyckades"
     }
   },
   "entity": {
     "sensor": {
-      "next_booking": { "name": "Nästa Bokning", "owner_name": "Bokningsägare", "student_name": "Elevens namn", "booking_length": "Bokningslängd" },
+      "next_booking": { "name": "Nästa Bokning"},
       "yellow_tags": { "name": "Gul Anmärkning" },
       "red_tags": { "name": "Röd Anmärkning" },
       "days_to_go": { "name": "Dagar till underhåll" },

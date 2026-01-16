@@ -5,27 +5,32 @@ from __future__ import annotations
 from datetime import datetime
 import logging
 import time
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from pyMyweblog import MyWebLogClient
 
-from homeassistant.components.sensor import (
+from homeassistant.components.sensor import (  # type: ignore[import]
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import StateType
-from homeassistant.helpers.update_coordinator import (
+from homeassistant.config_entries import ConfigEntry  # type: ignore[import]
+from homeassistant.const import EntityCategory  # type: ignore[import]
+from homeassistant.core import HomeAssistant  # type: ignore[import]
+from homeassistant.helpers.entity import DeviceInfo  # type: ignore[import]
+from homeassistant.helpers.entity_platform import AddEntitiesCallback  # type: ignore[import]
+from homeassistant.helpers.typing import StateType  # type: ignore[import]
+from homeassistant.helpers.update_coordinator import (  # type: ignore[import]
     CoordinatorEntity,
     DataUpdateCoordinator,
+    UpdateFailed,
 )
+from homeassistant import config_entries  # type: ignore[import]
 
 from .const import BOOKINGS_UPDATE_INTERVAL, DOMAIN, OBJECTS_UPDATE_INTERVAL
+from .config_flow import is_auth_error
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -135,14 +140,69 @@ SENSOR_TYPES = {
         name="Model",
         icon="mdi:alpha-m-circle-outline",
         translation_key="model",
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     "club": SensorEntityDescription(
         key="club",
         name="Club",
         icon="mdi:account-group",
         translation_key="club",
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
 }
+
+
+class MyWebLogDiagnosticSensor(CoordinatorEntity, SensorEntity):
+    """Diagnostic sensor for MyWebLog integration health."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: DataUpdateCoordinator,
+        key: str,
+        name: str,
+        icon: str,
+        static_value: int | None = None,
+    ) -> None:
+        """Initialize the diagnostic sensor."""
+        super().__init__(coordinator)
+        self._key = key
+        self._static_value = static_value
+        self._attr_unique_id = f"myweblog_diagnostic_{key}"
+        self._attr_name = name
+        self._attr_icon = icon
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "diagnostics")},
+            name="MyWebLog Diagnostics",
+            manufacturer="myWebLog",
+        )
+
+    @property
+    def state(self) -> StateType:
+        """Return the state of the diagnostic sensor."""
+        if self._key == "last_update_objects":
+            # Use last_update_success_time if available, otherwise None
+            if (
+                hasattr(self.coordinator, "last_update_success_time")
+                and self.coordinator.last_update_success_time
+            ):
+                return self.coordinator.last_update_success_time.isoformat()
+            elif (
+                hasattr(self.coordinator, "last_update_time")
+                and self.coordinator.last_update_time
+            ):
+                return self.coordinator.last_update_time.isoformat()
+            return None
+        elif self._key == "update_interval_objects":
+            interval = self.coordinator.update_interval
+            if interval:
+                return int(interval.total_seconds())
+            return None
+        elif self._key == "airplane_count":
+            return self._static_value
+        return None
 
 
 async def async_setup_entry(
@@ -163,16 +223,32 @@ async def async_setup_entry(
     ):
         raise TypeError("Missing or invalid credentials for myWebLog integration")
 
-    async def async_update_objects():
+    async def async_update_objects() -> list[dict[str, Any]]:
         _LOGGER.debug("Fetching objects for username=%s", username)
         try:
             async with MyWebLogClient(username, password, app_token) as client:
                 result = await client.getObjects()
                 _LOGGER.debug("Fetched objects: %s", result)
                 return result.get("Object", [])
-        except (ValueError, KeyError, TypeError) as e:
-            _LOGGER.error("Error fetching objects: %s", e)
-            return []
+        except Exception as e:
+            if is_auth_error(e):
+                _LOGGER.warning(
+                    "Authentication error detected, triggering re-authentication"
+                )
+                hass.async_create_task(
+                    hass.config_entries.flow.async_init(
+                        DOMAIN,
+                        context={
+                            "source": config_entries.SOURCE_REAUTH,
+                            "entry_id": config_entry.entry_id,
+                        },
+                        data=config_entry.data,
+                    )
+                )
+                raise UpdateFailed(
+                    "Authentication failed, please re-authenticate"
+                ) from e
+            raise UpdateFailed(f"Error fetching objects: {e}") from e
 
     objects_coordinator = DataUpdateCoordinator(
         hass,
@@ -187,18 +263,36 @@ async def async_setup_entry(
     for airplane in airplanes:
         _LOGGER.info("Creating sensor for airplane_id=%s", airplane["id"])
 
-        async def async_update_bookings(airplane_id=airplane["id"]):
+        async def async_update_bookings(
+            airplane_id: str = airplane["id"],
+        ) -> list[dict[str, Any]]:
             _LOGGER.debug("Fetching bookings for airplane_id=%s", airplane_id)
             try:
                 async with MyWebLogClient(username, password, app_token) as client:
                     result = await client.getBookings(airplane_id)
                     _LOGGER.debug("Fetched bookings: %s", result)
                     return result.get("Booking", [])
-            except (ValueError, KeyError, TypeError) as e:
-                _LOGGER.error(
-                    "Error fetching bookings for airplane_id=%s: %s", airplane_id, e
-                )
-                return []
+            except Exception as e:
+                if is_auth_error(e):
+                    _LOGGER.warning(
+                        "Authentication error detected, triggering re-authentication"
+                    )
+                    hass.async_create_task(
+                        hass.config_entries.flow.async_init(
+                            DOMAIN,
+                            context={
+                                "source": config_entries.SOURCE_REAUTH,
+                                "entry_id": config_entry.entry_id,
+                            },
+                            data=config_entry.data,
+                        )
+                    )
+                    raise UpdateFailed(
+                        "Authentication failed, please re-authenticate"
+                    ) from e
+                raise UpdateFailed(
+                    f"Error fetching bookings for airplane_id={airplane_id}: {e}"
+                ) from e
 
         bookings_coordinator = DataUpdateCoordinator(
             hass,
@@ -214,6 +308,31 @@ async def async_setup_entry(
             )
             for description in SENSOR_TYPES.values()
         )
+
+    # Add diagnostic sensors for the integration
+    diagnostic_sensors = [
+        MyWebLogDiagnosticSensor(
+            objects_coordinator,
+            "last_update_objects",
+            "Last Update (Objects)",
+            "mdi:clock-outline",
+        ),
+        MyWebLogDiagnosticSensor(
+            objects_coordinator,
+            "update_interval_objects",
+            "Update Interval (Objects)",
+            "mdi:timer",
+        ),
+        MyWebLogDiagnosticSensor(
+            objects_coordinator,
+            "airplane_count",
+            "Configured Airplanes",
+            "mdi:airplane",
+            len(airplanes),
+        ),
+    ]
+    sensors.extend(diagnostic_sensors)
+
     async_add_entities(sensors, True)
 
 
@@ -222,9 +341,9 @@ class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
 
     def __init__(
         self,
-        objects_coordinator,
-        bookings_coordinator,
-        airplane,
+        objects_coordinator: DataUpdateCoordinator,
+        bookings_coordinator: DataUpdateCoordinator,
+        airplane: dict[str, Any],
         description: SensorEntityDescription,
     ) -> None:
         """Initialize the sensor entity."""
@@ -276,29 +395,31 @@ class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
             and self._bookings_coordinator.data is not None
         )
 
-    def _get_yellow_tags(self, obj):
+    def _get_yellow_tags(self, obj: dict[str, Any]) -> int:
         return len(
             [r for r in obj.get("activeRemarks", []) if r.get("remarkCategory") == "1"]
         )
 
-    def _get_red_tags(self, obj):
+    def _get_red_tags(self, obj: dict[str, Any]) -> int:
         return len(
             [r for r in obj.get("activeRemarks", []) if r.get("remarkCategory") == "2"]
         )
 
-    def _get_days_to_go(self, obj):
+    def _get_days_to_go(self, obj: dict[str, Any]) -> int:
         return obj.get("maintTimeDate", {}).get("daysToGoValue", 0)
 
-    def _get_days_to_flight_stop(self, obj):
+    def _get_days_to_flight_stop(self, obj: dict[str, Any]) -> int:
         return obj.get("maintTimeDate", {}).get("flightStop_daysToGoValue", 0)
 
-    def _get_hours_to_go(self, obj):
+    def _get_hours_to_go(self, obj: dict[str, Any]) -> float:
         return round(float(obj.get("maintTimeDate", {}).get("hoursToGoValue", 0)), 2)
 
-    def _get_hours_to_flight_stop(self, obj):
-        return round(float(obj.get("maintTimeDate", {}).get("flightStop_hoursToGoValue", 0)), 2)
+    def _get_hours_to_flight_stop(self, obj: dict[str, Any]) -> float:
+        return round(
+            float(obj.get("maintTimeDate", {}).get("flightStop_hoursToGoValue", 0)), 2
+        )
 
-    def _get_airborne(self, obj):
+    def _get_airborne(self, obj: dict[str, Any]) -> float:
         try:
             value = obj["flightData"]["total"]["airborne"]
         except (KeyError, TypeError):
@@ -309,7 +430,7 @@ class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
             return obj.get("ftData", {}).get("landings", 0)
         return round(value, 2)
 
-    def _get_block(self, obj):
+    def _get_block(self, obj: dict[str, Any]) -> float:
         try:
             value = obj["flightData"]["total"]["block"]
         except (KeyError, TypeError):
@@ -320,7 +441,7 @@ class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
             return value
         return round(value, 2)
 
-    def _get_tachometer(self, obj):
+    def _get_tachometer(self, obj: dict[str, Any]) -> float:
         try:
             value = obj["flightData"]["total"]["tachoMeter"]
         except (KeyError, TypeError):
@@ -331,7 +452,7 @@ class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
             return value
         return round(value, 2)
 
-    def _get_tach_time(self, obj):
+    def _get_tach_time(self, obj: dict[str, Any]) -> float:
         try:
             value = obj["flightData"]["total"]["tachtime"]
         except (KeyError, TypeError):
@@ -342,19 +463,19 @@ class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
             return value
         return round(value, 2)
 
-    def _get_landings(self, obj):
+    def _get_landings(self, obj: dict[str, Any]) -> int:
         try:
             return obj["flightData"]["total"]["landings"]
         except (KeyError, TypeError):
             return obj.get("ftData", {}).get("landings", 0)
 
-    def _get_model(self, obj):
+    def _get_model(self, obj: dict[str, Any]) -> str | None:
         return obj.get("model")
 
-    def _get_club(self, obj):
+    def _get_club(self, obj: dict[str, Any]) -> str | None:
         return obj.get("clubname")
 
-    def _get_next_booking(self, obj):
+    def _get_next_booking(self, obj: dict[str, Any]) -> str | None:
         bookings = self._bookings_coordinator.data or []
         if not bookings:
             self._next_booking_obj = None
@@ -425,7 +546,7 @@ class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
         return None
 
     @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes for the sensor."""
         attrs = dict(super().extra_state_attributes or {})
         key = self.entity_description.key
@@ -475,7 +596,7 @@ class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
 
         return attrs
 
-    def _get_airplane_obj(self):
+    def _get_airplane_obj(self) -> dict[str, Any] | None:
         if not self.coordinator.data:
             return None
         return next(

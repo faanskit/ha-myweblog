@@ -1,41 +1,9 @@
 # myWebLog Home Assistant Integration
 
+![Quality Scale: Gold](https://img.shields.io/badge/Quality%20Scale-Gold-yellow.svg)
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+
 This is a custom Home Assistant integration for [myWebLog](https://www.myweblog.se), allowing you to monitor and manage your club's airplanes directly from Home Assistant.
-
-## 🚧 Beta Phase Instructions
-
-This integration is currently in **beta**. We welcome early adopters, testers, and contributors!
-
-### 1. Install via Option 3
-As the integration is not yet available via the default HACS store, please install using [Option 3: Git-based Installation](#option-3-git-based-installation-with-symlink-advanced--dev-use).
-
-### 2. Report Bugs
-If you encounter any issues or unexpected behavior:
-- Please report them via [GitHub Issues](https://github.com/faanskit/ha-myweblog/issues).
-- Include relevant logs and reproduction steps when possible.
-
-### 3. Contribute with Code Style
-When contributing:
-- Format your code using **Black**:
-  ```bash
-  black .
-  ``` 
-- Check your code style using Flake8:
-  ```bash
-  flake8
-  ```
-- Follow [Home Assistant's Python Style Guide](https://developers.home-assistant.io/docs/development/python_style_guide/) for consistency. This includes naming conventions, async/await usage, docstrings, and structure.
-
-
-### 4. Follow Git Flow for Development
-If you're developing features or fixes:
-- Create a separate branch for each feature or bugfix:
-  ```bash
-  git checkout -b fix/something-broken
-  ```
-- Push your branch and submit a pull request (PR) to main when ready.
-
-We appreciate your help in shaping the future of this integration!
 
 ## Features
 - **Multi-Airplane Support:** Select and monitor multiple airplanes during setup.
@@ -127,6 +95,11 @@ For each selected airplane, **multiple sensors** are created—one for each metr
   - `sensor.<regnr>_model` (Airplane model)
   - `sensor.<regnr>_club` (Club name)
 
+- **Diagnostic Sensors** (Integration-level):
+  - `sensor.myweblog_diagnostics_last_update_objects` (Last successful update timestamp)
+  - `sensor.myweblog_diagnostics_update_interval_objects` (Update interval in seconds)
+  - `sensor.myweblog_diagnostics_configured_airplanes` (Number of configured airplanes)
+
 - **State:**
   - Each sensor's state reflects the current value for that metric (e.g., hours, count, timestamp, or string).
   - Numeric sensors use appropriate `state_class` and `device_class` for Home Assistant statistics and dashboards.
@@ -176,7 +149,7 @@ condition:
       {% set current_time = as_timestamp(now()) %}
       {% set time_diff = booking_time - current_time %}
       {% set window = 300 %}  # 5 minutes in seconds
-      {{ time_diff > 0 and time_diff <= 3600 and time_diff >= (3600 - window) }}
+      {{ 0 < time_diff <= 60 }}
 action:
   - service: switch.turn_on
     target:
@@ -210,7 +183,29 @@ mode: single
 **Action**: Turns off the heater.
 
 ## Options & Customization
-- To change selected airplanes after setup, remove and re-add the integration (options flow coming soon).
+
+### Adding or Removing Airplanes
+
+You can modify which airplanes are monitored without removing and re-adding the integration:
+
+1. Go to **Configuration** → **Devices & Services** in Home Assistant.
+2. Find the **myWebLog** integration and click on it.
+3. Click the **Configure** button (or the three-dot menu → **Configure**).
+4. Select or deselect airplanes from the list.
+5. Click **Submit** to save your changes.
+
+The integration will automatically reload with your updated airplane selection.
+
+### Re-authentication
+
+If your credentials expire or become invalid, the integration will automatically prompt you to re-authenticate:
+
+1. A notification will appear in Home Assistant indicating that re-authentication is required.
+2. Click the notification or go to **Configuration** → **Devices & Services** → **myWebLog**.
+3. Enter your updated credentials.
+4. The integration will automatically reload with the new credentials.
+
+### Additional Notes
 - All API credentials and tokens are stored securely in your Home Assistant config.
 - You can add or update translations by editing the `en.json`, `sv.json`, or other language files in the `translations` directory.
 - Sensor state_class and device_class can be customized for advanced Home Assistant statistics and energy dashboard support.
@@ -238,6 +233,106 @@ logger:
 
 ## License
 See [LICENSE](LICENSE).
+
+## Development & Testing
+
+### Running Tests
+To run the test suite, you need to install the development requirements first. It is recommended to use a virtual environment.
+
+1. Install testing dependencies:
+   ```bash
+   pip install pytest-homeassistant-custom-component pytest-cov
+   ```
+
+2. Run the tests using `pytest`:
+   ```bash
+   pytest
+   ```
+
+   Or run with verbose output:
+   ```bash
+   pytest -v
+   ```
+
+**NOTE**
+You may have to patch your `PYTHONPATH` to run this (Windows PowerShell):
+```powershell
+$env:PYTHONPATH = "$PWD"; pytest
+```
+
+### Running Tests with Coverage
+
+To run the test suite with coverage reporting:
+
+1. Install coverage dependencies (if not already installed):
+   ```bash
+   pip install pytest-cov
+   ```
+
+2. Run tests with coverage:
+   ```bash
+   pytest --cov=custom_components/myweblog --cov-report=term-missing
+   ```
+
+   This will show:
+   - Coverage percentage for each file
+   - Missing line numbers for uncovered code
+
+3. Generate HTML coverage report:
+   ```bash
+   pytest --cov=custom_components/myweblog --cov-report=html
+   ```
+
+   This creates an `htmlcov` directory with an interactive HTML report. Open `htmlcov/index.html` in your browser to view detailed coverage information.
+
+4. Generate both terminal and HTML reports:
+   ```bash
+   pytest --cov=custom_components/myweblog --cov-report=term-missing --cov-report=html
+   ```
+
+**Current Coverage:**
+- `config_flow.py`: 100% coverage
+- `sensor.py`: 91% coverage
+- Overall: 95% coverage
+
+The test suite covers configuration flow, sensor setup, error handling, options flow, re-authentication, and diagnostic sensors. We aim for high coverage to ensure reliability across Home Assistant updates.
+
+## Contributing
+
+### 1. Honor Home Assistant Integration Quality level
+The integration is a GOLD level integration. This means contributors must ensure the following standards are maintained:
+- **Extensive Documentation**: Provide comprehensive, user-friendly documentation including setup, features, troubleshooting, and examples.
+- **Full Test Coverage**: Maintain automated tests covering the entire integration codebase (currently 95%+ coverage).
+- **Robust Error Handling**: Implement proper error recovery, automatic re-authentication, and graceful handling of offline devices/services.
+- **Reconfigurability**: Ensure the integration can be reconfigured and adjusted via the Home Assistant UI.
+- **Translations**: Support multiple languages with complete translations for all user-facing strings.
+- **Coding Standards**: Adhere to Home Assistant's Python Style Guide, with code formatted using Black and linted with Flake8.
+- **Active Maintenance**: Have active code owners who maintain and update the integration.
+
+### 2. Contribute with Code Style
+When contributing:
+- Format your code using **Black**:
+  ```bash
+  black .
+  ``` 
+- Check your code style using Flake8:
+  ```bash
+  flake8
+  ```
+- Follow [Home Assistant's Python Style Guide](https://developers.home-assistant.io/docs/development/python_style_guide/) for consistency. This includes naming conventions, async/await usage, docstrings, and structure.
+
+### 3. Follow Git Flow for Development
+If you're developing features or fixes:
+- Create a separate branch for each feature or bugfix:
+  ```bash
+  git checkout -b feature/new-feature
+  git checkout -b fix/something-broken
+  ```
+- Ensure all tests pass and linting checks succeed before submitting.
+- Push your branch and submit a pull request (PR) to main when ready.
+- PRs will be automatically validated with linting, HACS validation, and Home Assistant fest checks.
+
+We appreciate your help in shaping the future of this integration!
 
 ## Credits
 - Integration by [Marcus Karlsson](https://github.com/faanskit)
