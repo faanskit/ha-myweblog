@@ -12,6 +12,5 @@
   "requirements": ["pyMyweblog>=0.6.0"],
   "ssdp": [],
   "version": "0.1.7",
-  "zeroconf": [],
-  "translation_files": ["translations/*.json"]
+  "zeroconf": []
 }
