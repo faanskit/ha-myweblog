@@ -47,7 +47,7 @@ async def validate_credentials(
     """Validate the user credentials and return (airplanes, app_token)."""
     _LOGGER.debug("Validating credentials for username=%s", username)
     try:
-        async with MyWebLogClient(username, password, app_token="") as client:
+        async with MyWebLogClient(username, password) as client:
             app_token = await client.obtainAppToken(APP_SECRET)
             result = await client.getObjects()
 
