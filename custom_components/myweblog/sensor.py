@@ -261,7 +261,7 @@ async def async_setup_entry(
     objects_coordinator._last_update_success_timestamp = None  # type: ignore
     await objects_coordinator.async_config_entry_first_refresh()
     # Record successful initial refresh
-    if objects_coordinator.last_error is None:
+    if objects_coordinator.last_exception is None:
         objects_coordinator._last_update_success_timestamp = time.time()  # type: ignore
 
     sensors = []
@@ -340,7 +340,7 @@ async def async_setup_entry(
 
     def update_last_update_timestamp() -> None:
         """Update the last update timestamp when coordinator refreshes."""
-        if objects_coordinator.last_error is None:
+        if objects_coordinator.last_exception is None:
             objects_coordinator._last_update_success_timestamp = time.time()  # type: ignore
 
     # Listen for coordinator updates and track successful ones
