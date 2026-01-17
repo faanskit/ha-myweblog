@@ -248,10 +248,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
         super().__init__()
-        self._config_entry = config_entry
-        if not hasattr(self, "config_entry"):
-            self.config_entry = config_entry
-        self.config_entry_data = config_entry.data
+        self._my_config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -266,8 +263,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         """Handle options flow for airplane selection."""
         _LOGGER.debug("Starting options flow: step_options")
         errors = {}
-        entry = self.config_entry
-
+        try:
+            entry = self.config_entry
+        except (AttributeError, ValueError):
+            entry = self._my_config_entry
         username = entry.data.get("username")
         password = entry.data.get("password")
         current_airplanes = entry.data.get("airplanes", [])
