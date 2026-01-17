@@ -247,7 +247,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
-        super().__init__(config_entry)
+        super().__init__()
+        self._config_entry = config_entry
+        if not hasattr(self, "config_entry"):
+            self.config_entry = config_entry
         self.config_entry_data = config_entry.data
 
     async def async_step_init(
