@@ -183,17 +183,17 @@ class MyWebLogDiagnosticSensor(CoordinatorEntity, SensorEntity):
     def state(self) -> StateType:
         """Return the state of the diagnostic sensor."""
         if self._key == "last_update_objects":
-            # Use last_update_success_time if available, otherwise None
+            # Use last_update_success timestamp if available
             if (
-                hasattr(self.coordinator, "last_update_success_time")
-                and self.coordinator.last_update_success_time
+                hasattr(self.coordinator, "last_update_success")
+                and self.coordinator.last_update_success is not None
             ):
-                return self.coordinator.last_update_success_time.isoformat()
-            elif (
-                hasattr(self.coordinator, "last_update_time")
-                and self.coordinator.last_update_time
-            ):
-                return self.coordinator.last_update_time.isoformat()
+                # Convert Unix timestamp to ISO format datetime
+                dt = datetime.fromtimestamp(
+                    self.coordinator.last_update_success,
+                    tz=ZoneInfo("UTC")
+                )
+                return dt.isoformat()
             return None
         elif self._key == "update_interval_objects":
             interval = self.coordinator.update_interval

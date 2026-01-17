@@ -11,6 +11,6 @@
   "quality_scale": "gold",
   "requirements": ["pyMyweblog>=0.6.0"],
   "ssdp": [],
-  "version": "0.1.7",
+  "version": "0.2.0",
   "zeroconf": []
 }
