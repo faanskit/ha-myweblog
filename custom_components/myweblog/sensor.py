@@ -183,14 +183,14 @@ class MyWebLogDiagnosticSensor(CoordinatorEntity, SensorEntity):
     def state(self) -> StateType:
         """Return the state of the diagnostic sensor."""
         if self._key == "last_update_objects":
-            # Use last_update_success timestamp if available
+            # Use manually tracked last_update_success_timestamp
             if (
-                hasattr(self.coordinator, "last_update_success")
-                and self.coordinator.last_update_success is not None
+                hasattr(self.coordinator, "_last_update_success_timestamp")
+                and self.coordinator._last_update_success_timestamp is not None  # type: ignore
             ):
                 # Convert Unix timestamp to ISO format datetime
                 dt = datetime.fromtimestamp(
-                    self.coordinator.last_update_success,
+                    self.coordinator._last_update_success_timestamp,  # type: ignore
                     tz=ZoneInfo("UTC")
                 )
                 return dt.isoformat()
@@ -257,6 +257,23 @@ async def async_setup_entry(
         update_method=async_update_objects,
         update_interval=OBJECTS_UPDATE_INTERVAL,
     )
+    # Manually track last successful update time
+    objects_coordinator._last_update_success_timestamp = None  # type: ignore
+    
+    # Wrap the original async_refresh to track successful updates
+    original_async_refresh = objects_coordinator.async_refresh
+    
+    async def tracked_async_refresh(*args: Any, **kwargs: Any) -> None:
+        """Wrap async_refresh to track successful updates."""
+        try:
+            await original_async_refresh(*args, **kwargs)
+            if objects_coordinator.last_error is None:
+                # Update was successful, record the timestamp
+                objects_coordinator._last_update_success_timestamp = time.time()  # type: ignore
+        except Exception:
+            raise
+    
+    objects_coordinator.async_refresh = tracked_async_refresh  # type: ignore
     await objects_coordinator.async_config_entry_first_refresh()
 
     sensors = []
