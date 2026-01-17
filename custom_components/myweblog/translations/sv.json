@@ -23,13 +23,6 @@
         },
         "description": "Dina myWebLog-inloggningsuppgifter är inte längre giltiga. Ange dina inloggningsuppgifter igen.",
         "title": "Återautentisera myWebLog"
-      },
-      "options": {
-        "data": {
-          "airplanes": "Välj Flygplan"
-        },
-        "description": "Ändra vilka flygplan du vill övervaka. Du kan lägga till eller ta bort flygplan från ditt val.",
-        "title": "Konfigurera myWebLog Flygplan"
       }
     },
     "error": {
@@ -41,6 +34,22 @@
     "abort": {
       "already_configured": "Kontot är redan konfigurerat",
       "reauth_successful": "Återautentisering lyckades"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "airplanes": "Välj Flygplan"
+        },
+        "description": "Ändra vilka flygplan du vill övervaka. Du kan lägga till eller ta bort flygplan från ditt val.",
+        "title": "Konfigurera myWebLog Flygplan"
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unexpected error"
     }
   },
   "entity": {

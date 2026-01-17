@@ -269,7 +269,7 @@ async def test_options_flow(hass: HomeAssistant) -> None:
         # Start options flow
         result = await hass.config_entries.options.async_init(entry.entry_id)
         assert result.get("type") == data_entry_flow.FlowResultType.FORM
-        assert result.get("step_id") == "options"
+        assert result.get("step_id") == "init"
 
         # Add another airplane
         result = await hass.config_entries.options.async_configure(

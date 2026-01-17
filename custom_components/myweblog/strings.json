@@ -16,12 +16,13 @@
         "description": "Select the airplanes you want to monitor. You can select multiple airplanes.",
         "title": "Select Airplane(s) for myWebLog"
       },
-      "options": {
+      "reauth": {
         "data": {
-          "airplanes": "Select Airplanes"
+          "username": "Username",
+          "password": "Password"
         },
-        "description": "Modify which airplanes you want to monitor. You can add or remove airplanes from your selection.",
-        "title": "Configure myWebLog Airplanes"
+        "description": "Your myWebLog credentials are no longer valid. Please enter your credentials again.",
+        "title": "Re-authenticate myWebLog"
       }
     },
     "error": {
@@ -33,6 +34,22 @@
     "abort": {
       "already_configured": "Account is already configured",
       "reauth_successful": "Re-authentication successful"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "airplanes": "Select Airplanes"
+        },
+        "description": "Modify which airplanes you want to monitor. You can add or remove airplanes from your selection.",
+        "title": "Configure myWebLog Airplanes"
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unexpected error"
     }
   },
   "entity": {
