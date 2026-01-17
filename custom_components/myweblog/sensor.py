@@ -19,6 +19,7 @@ from homeassistant.components.sensor import (  # type: ignore[import]
 from homeassistant.config_entries import ConfigEntry  # type: ignore[import]
 from homeassistant.const import EntityCategory  # type: ignore[import]
 from homeassistant.core import HomeAssistant  # type: ignore[import]
+from homeassistant.helpers import entity_registry as er  # type: ignore[import]
 from homeassistant.helpers.entity import DeviceInfo  # type: ignore[import]
 from homeassistant.helpers.entity_platform import AddEntitiesCallback  # type: ignore[import]
 from homeassistant.helpers.typing import StateType  # type: ignore[import]
@@ -209,6 +210,31 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up myWebLog sensors from a config entry."""
+
+    ent_reg = er.async_get(hass)
+    airplanes = config_entry.data.get("airplanes", [])
+    current_regnrs = {p["regnr"].lower().replace("-", "_") for p in airplanes}
+
+    # Hitta alla sensorer som tillhör denna integration
+    existing_entities = er.async_entries_for_config_entry(
+        ent_reg, config_entry.entry_id
+    )
+
+    for entity in existing_entities:
+        # Ignorera diagnos-sensorer
+        if entity.unique_id.startswith("myweblog_diagnostic_"):
+            continue
+
+        # Kolla om sensorn tillhör ett plan som inte längre är valt
+        is_current = any(
+            entity.unique_id.startswith(f"myweblog_{reg}_") for reg in current_regnrs
+        )
+
+        if not is_current:
+            _LOGGER.info("Rensar bort gammal sensor: %s", entity.entity_id)
+            # DENNA RAD BEHÖVS FÖR ATT RADERA:
+            ent_reg.async_remove(entity.entity_id)
+
     username = config_entry.data.get("username")
     password = config_entry.data.get("password")
     app_token = config_entry.data.get("app_token")

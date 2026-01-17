@@ -3,6 +3,7 @@ from unittest.mock import patch, AsyncMock
 
 from homeassistant import config_entries, data_entry_flow  # type: ignore[import]
 from homeassistant.core import HomeAssistant  # type: ignore[import]
+from homeassistant.helpers import entity_registry as er  # type: ignore[import]
 from pytest_homeassistant_custom_component.common import MockConfigEntry  # type: ignore[import]
 from custom_components.myweblog.const import DOMAIN
 
@@ -287,7 +288,7 @@ async def test_options_flow(hass: HomeAssistant) -> None:
 
 
 async def test_options_flow_remove_airplane(hass: HomeAssistant) -> None:
-    """Test options flow for removing an airplane."""
+    """Test options flow for removing an airplane and verifying entity cleanup."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
@@ -302,6 +303,35 @@ async def test_options_flow_remove_airplane(hass: HomeAssistant) -> None:
         title="MyWeblog (test_user - 2 planes)",
     )
     entry.add_to_hass(hass)
+
+    # Pre-populate entity registry
+    registry = er.async_get(hass)
+    # Entity for SE-ABC (will be kept)
+    abc_entry = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        "myweblog_se_abc_next_booking",
+        config_entry=entry,
+    )
+    # Entity for SE-DEF (will be removed)
+    def_entry = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        "myweblog_se_def_next_booking",
+        config_entry=entry,
+    )
+    # Diagnostic entity (will be kept)
+    diag_entry = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        "myweblog_diagnostic_airplane_count",
+        config_entry=entry,
+    )
+
+    # Verify they exist
+    assert registry.async_get(abc_entry.entity_id) is not None
+    assert registry.async_get(def_entry.entity_id) is not None
+    assert registry.async_get(diag_entry.entity_id) is not None
 
     with patch(
         "custom_components.myweblog.config_flow.MyWebLogClient"
@@ -333,13 +363,15 @@ async def test_options_flow_remove_airplane(hass: HomeAssistant) -> None:
         result = await hass.config_entries.options.async_init(entry.entry_id)
         assert result.get("type") == data_entry_flow.FlowResultType.FORM
 
-        # Remove one airplane
+        # Remove one airplane (SE-DEF)
         result = await hass.config_entries.options.async_configure(
             result.get("flow_id"),
             {"airplanes": ["SE-ABC"]},
         )
 
         assert result.get("type") == data_entry_flow.FlowResultType.CREATE_ENTRY
+
+        # We need to wait for the reload to complete
         await hass.async_block_till_done()
 
         # Verify entry was updated
@@ -347,6 +379,11 @@ async def test_options_flow_remove_airplane(hass: HomeAssistant) -> None:
         assert updated_entry is not None
         assert len(updated_entry.data["airplanes"]) == 1
         assert updated_entry.data["airplanes"][0]["regnr"] == "SE-ABC"
+
+        # Verify entity registry cleanup
+        assert registry.async_get(abc_entry.entity_id) is not None
+        assert registry.async_get(def_entry.entity_id) is None  # Should be removed
+        assert registry.async_get(diag_entry.entity_id) is not None  # Should be kept
 
 
 async def test_options_flow_no_selection(hass: HomeAssistant) -> None:

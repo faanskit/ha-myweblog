@@ -21,6 +21,7 @@ async def test_sensors(hass: HomeAssistant) -> None:
 
     with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         instance.getObjects = AsyncMock(
             return_value={
                 "Object": [
@@ -68,6 +69,9 @@ async def test_sensors(hass: HomeAssistant) -> None:
         assert state is not None
         assert state.state == "0"
 
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
 
 async def test_get_yellow_tags(hass: HomeAssistant) -> None:
     """Test _get_yellow_tags method with various remark categories."""
@@ -87,6 +91,7 @@ async def test_get_yellow_tags(hass: HomeAssistant) -> None:
 
     with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         instance.getObjects = AsyncMock(
             return_value={
                 "Object": [
@@ -110,6 +115,8 @@ async def test_get_yellow_tags(hass: HomeAssistant) -> None:
         state = hass.states.get("sensor.se_abc_yellow_tags")
         assert state is not None
         assert state.state == "2"  # Two yellow tags
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
 
 
 async def test_get_red_tags(hass: HomeAssistant) -> None:
@@ -129,6 +136,7 @@ async def test_get_red_tags(hass: HomeAssistant) -> None:
 
     with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         instance.getObjects = AsyncMock(
             return_value={
                 "Object": [
@@ -153,6 +161,8 @@ async def test_get_red_tags(hass: HomeAssistant) -> None:
         state = hass.states.get("sensor.se_abc_red_tags")
         assert state is not None
         assert state.state == "3"  # Three red tags
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
 
 
 async def test_get_days_to_go(hass: HomeAssistant) -> None:
@@ -172,6 +182,7 @@ async def test_get_days_to_go(hass: HomeAssistant) -> None:
 
     with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         instance.getObjects = AsyncMock(
             return_value={
                 "Object": [
@@ -193,6 +204,8 @@ async def test_get_days_to_go(hass: HomeAssistant) -> None:
         state = hass.states.get("sensor.se_abc_days_to_go_maintenance")
         assert state is not None
         assert state.state == "15"
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
 
 
 async def test_get_days_to_flight_stop(hass: HomeAssistant) -> None:
@@ -212,6 +225,7 @@ async def test_get_days_to_flight_stop(hass: HomeAssistant) -> None:
 
     with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         instance.getObjects = AsyncMock(
             return_value={
                 "Object": [
@@ -233,6 +247,8 @@ async def test_get_days_to_flight_stop(hass: HomeAssistant) -> None:
         state = hass.states.get("sensor.se_abc_days_to_go_flight_stop")
         assert state is not None
         assert state.state == "7"
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
 
 
 async def test_get_hours_to_go(hass: HomeAssistant) -> None:
@@ -252,6 +268,7 @@ async def test_get_hours_to_go(hass: HomeAssistant) -> None:
 
     with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         instance.getObjects = AsyncMock(
             return_value={
                 "Object": [
@@ -273,6 +290,8 @@ async def test_get_hours_to_go(hass: HomeAssistant) -> None:
         state = hass.states.get("sensor.se_abc_hours_to_go_maintenance")
         assert state is not None
         assert state.state == "123.46"  # Rounded to 2 decimal places
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
 
 
 async def test_get_hours_to_flight_stop(hass: HomeAssistant) -> None:
@@ -292,6 +311,7 @@ async def test_get_hours_to_flight_stop(hass: HomeAssistant) -> None:
 
     with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         instance.getObjects = AsyncMock(
             return_value={
                 "Object": [
@@ -313,6 +333,8 @@ async def test_get_hours_to_flight_stop(hass: HomeAssistant) -> None:
         state = hass.states.get("sensor.se_abc_hours_to_go_flight_stop")
         assert state is not None
         assert state.state == "45.79"  # Rounded to 2 decimal places
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
 
 
 async def test_get_airborne_fallback(hass: HomeAssistant) -> None:
@@ -332,6 +354,7 @@ async def test_get_airborne_fallback(hass: HomeAssistant) -> None:
 
     with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         # Test fallback to ftData
         instance.getObjects = AsyncMock(
             return_value={
@@ -354,6 +377,8 @@ async def test_get_airborne_fallback(hass: HomeAssistant) -> None:
         state = hass.states.get("sensor.se_abc_airborne")
         assert state is not None
         assert state.state == "200.5"
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
 
 
 async def test_get_block_fallback(hass: HomeAssistant) -> None:
@@ -373,6 +398,7 @@ async def test_get_block_fallback(hass: HomeAssistant) -> None:
 
     with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         # Test fallback to ftData
         instance.getObjects = AsyncMock(
             return_value={
@@ -395,6 +421,8 @@ async def test_get_block_fallback(hass: HomeAssistant) -> None:
         state = hass.states.get("sensor.se_abc_block")
         assert state is not None
         assert state.state == "250.75"
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
 
 
 async def test_get_tachometer_fallback(hass: HomeAssistant) -> None:
@@ -414,6 +442,7 @@ async def test_get_tachometer_fallback(hass: HomeAssistant) -> None:
 
     with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         instance.getObjects = AsyncMock(
             return_value={
                 "Object": [
@@ -435,6 +464,8 @@ async def test_get_tachometer_fallback(hass: HomeAssistant) -> None:
         state = hass.states.get("sensor.se_abc_tachometer")
         assert state is not None
         assert state.state == "300.25"
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
 
 
 async def test_get_tach_time_fallback(hass: HomeAssistant) -> None:
@@ -454,6 +485,7 @@ async def test_get_tach_time_fallback(hass: HomeAssistant) -> None:
 
     with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         instance.getObjects = AsyncMock(
             return_value={
                 "Object": [
@@ -475,6 +507,8 @@ async def test_get_tach_time_fallback(hass: HomeAssistant) -> None:
         state = hass.states.get("sensor.se_abc_tach_time")
         assert state is not None
         assert state.state == "350.5"
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
 
 
 async def test_get_landings_fallback(hass: HomeAssistant) -> None:
@@ -494,6 +528,7 @@ async def test_get_landings_fallback(hass: HomeAssistant) -> None:
 
     with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         instance.getObjects = AsyncMock(
             return_value={
                 "Object": [
@@ -515,6 +550,8 @@ async def test_get_landings_fallback(hass: HomeAssistant) -> None:
         state = hass.states.get("sensor.se_abc_landings")
         assert state is not None
         assert state.state == "75"
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
 
 
 async def test_get_model(hass: HomeAssistant) -> None:
@@ -534,6 +571,7 @@ async def test_get_model(hass: HomeAssistant) -> None:
 
     with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         instance.getObjects = AsyncMock(
             return_value={
                 "Object": [
@@ -553,6 +591,8 @@ async def test_get_model(hass: HomeAssistant) -> None:
         state = hass.states.get("sensor.se_abc_model")
         assert state is not None
         assert state.state == "Cessna 172"
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
 
 
 async def test_get_club(hass: HomeAssistant) -> None:
@@ -572,6 +612,7 @@ async def test_get_club(hass: HomeAssistant) -> None:
 
     with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         instance.getObjects = AsyncMock(
             return_value={
                 "Object": [
@@ -591,6 +632,8 @@ async def test_get_club(hass: HomeAssistant) -> None:
         state = hass.states.get("sensor.se_abc_club")
         assert state is not None
         assert state.state == "Test Flying Club"
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
 
 
 async def test_get_next_booking(hass: HomeAssistant) -> None:
@@ -616,6 +659,7 @@ async def test_get_next_booking(hass: HomeAssistant) -> None:
 
     with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         instance.getObjects = AsyncMock(
             return_value={
                 "Object": [
@@ -740,13 +784,11 @@ async def test_get_next_booking(hass: HomeAssistant) -> None:
         await hass.config_entries.async_setup(entry3.entry_id)
         await hass.async_block_till_done()
 
-        # For entry3, we need to check that there's no future booking
-        # The state might still show the booking from entry2, so we check entry3's state
-        # by looking at a different regnr or checking that the booking is in the past
-        # Actually, since all entries use the same regnr, they share entities
-        # So we just verify that past bookings result in no next booking
-        # The test above already verified future bookings work
-        pass  # Test passes if we get here without exception
+        # Cleanup
+        await hass.config_entries.async_unload(entry.entry_id)
+        await hass.config_entries.async_unload(entry2.entry_id)
+        await hass.config_entries.async_unload(entry3.entry_id)
+        await hass.async_block_till_done()
 
 
 async def test_coordinator_auth_error_objects(hass: HomeAssistant) -> None:
@@ -765,8 +807,13 @@ async def test_coordinator_auth_error_objects(hass: HomeAssistant) -> None:
     )
     entry.add_to_hass(hass)
 
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
+    with patch(
+        "custom_components.myweblog.sensor.MyWebLogClient"
+    ) as mock_client, patch(
+        "homeassistant.config_entries.ConfigEntriesFlowManager.async_init"
+    ) as mock_reauth:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         # Simulate auth error
         instance.getObjects = AsyncMock(side_effect=Exception("Invalid credentials"))
         instance.getBookings = AsyncMock(return_value={"Booking": []})
@@ -780,9 +827,11 @@ async def test_coordinator_auth_error_objects(hass: HomeAssistant) -> None:
             # ConfigEntryNotReady may be raised, which is expected
             pass
 
-        # Verify that re-auth was triggered (check logs or just verify setup attempted)
-        # The important thing is that auth errors are detected and handled
-        # Sensors won't be created if setup fails, which is expected behavior
+        # Verify that reauth was triggered
+        assert mock_reauth.called
+
+        # Clean up any tasks
+        await hass.async_block_till_done()
 
 
 async def test_coordinator_auth_error_bookings(hass: HomeAssistant) -> None:
@@ -801,8 +850,13 @@ async def test_coordinator_auth_error_bookings(hass: HomeAssistant) -> None:
     )
     entry.add_to_hass(hass)
 
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
+    with patch(
+        "custom_components.myweblog.sensor.MyWebLogClient"
+    ) as mock_client, patch(
+        "homeassistant.config_entries.ConfigEntriesFlowManager.async_init"
+    ) as mock_reauth:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         instance.getObjects = AsyncMock(
             return_value={
                 "Object": [
@@ -825,9 +879,11 @@ async def test_coordinator_auth_error_bookings(hass: HomeAssistant) -> None:
             # ConfigEntryNotReady may be raised, which is expected
             pass
 
-        # Verify that re-auth was triggered (check logs or just verify setup attempted)
-        # The important thing is that auth errors are detected and handled
-        # Sensors won't be created if setup fails, which is expected behavior
+        # Verify that reauth was triggered
+        assert mock_reauth.called
+
+        # Clean up any tasks
+        await hass.async_block_till_done()
 
 
 async def test_sensor_state_missing_airplane(hass: HomeAssistant) -> None:
@@ -847,6 +903,7 @@ async def test_sensor_state_missing_airplane(hass: HomeAssistant) -> None:
 
     with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         # Return objects but without the airplane we're looking for
         instance.getObjects = AsyncMock(
             return_value={
@@ -868,6 +925,9 @@ async def test_sensor_state_missing_airplane(hass: HomeAssistant) -> None:
         assert state is not None
         # State might be None, unavailable, or unknown
         assert state.state in (None, "unavailable", "unknown")
+
+        await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
 
 
 async def test_sensor_extra_state_attributes(hass: HomeAssistant) -> None:
@@ -892,6 +952,7 @@ async def test_sensor_extra_state_attributes(hass: HomeAssistant) -> None:
 
     with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         instance.getObjects = AsyncMock(
             return_value={
                 "Object": [
@@ -948,6 +1009,9 @@ async def test_sensor_extra_state_attributes(hass: HomeAssistant) -> None:
         assert "student_name" in state.attributes
         assert "booking_length" in state.attributes
 
+        await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
 
 async def test_sensor_available_property(hass: HomeAssistant) -> None:
     """Test sensor available property with various coordinator states."""
@@ -966,6 +1030,7 @@ async def test_sensor_available_property(hass: HomeAssistant) -> None:
 
     with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         instance.getObjects = AsyncMock(
             return_value={
                 "Object": [
@@ -987,6 +1052,9 @@ async def test_sensor_available_property(hass: HomeAssistant) -> None:
         # State might be "0" or "unavailable" depending on data
         assert state.state is not None
 
+        await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
 
 async def test_diagnostic_sensor_state(hass: HomeAssistant) -> None:
     """Test diagnostic sensor state property."""
@@ -1005,6 +1073,7 @@ async def test_diagnostic_sensor_state(hass: HomeAssistant) -> None:
 
     with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
         instance = mock_client.return_value.__aenter__.return_value
+        instance.obtainAppToken = AsyncMock(return_value="fake_token")
         instance.getObjects = AsyncMock(
             return_value={
                 "Object": [
@@ -1030,6 +1099,9 @@ async def test_diagnostic_sensor_state(hass: HomeAssistant) -> None:
         assert state is not None
         # Should be a number (update interval in seconds)
         assert state.state is not None
+
+        await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
 
 
 async def test_setup_entry_missing_credentials(hass: HomeAssistant) -> None:
