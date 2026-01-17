@@ -140,14 +140,12 @@ SENSOR_TYPES = {
         name="Model",
         icon="mdi:alpha-m-circle-outline",
         translation_key="model",
-        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     "club": SensorEntityDescription(
         key="club",
         name="Club",
         icon="mdi:account-group",
         translation_key="club",
-        entity_category=EntityCategory.DIAGNOSTIC,
     ),
 }
 
