@@ -191,7 +191,7 @@ class MyWebLogDiagnosticSensor(CoordinatorEntity, SensorEntity):
                 # Convert Unix timestamp to ISO format datetime
                 dt = datetime.fromtimestamp(
                     self.coordinator._last_update_success_timestamp,  # type: ignore
-                    tz=ZoneInfo("UTC")
+                    tz=ZoneInfo("UTC"),
                 )
                 return dt.isoformat()
             return None
@@ -259,22 +259,10 @@ async def async_setup_entry(
     )
     # Manually track last successful update time
     objects_coordinator._last_update_success_timestamp = None  # type: ignore
-    
-    # Wrap the original async_refresh to track successful updates
-    original_async_refresh = objects_coordinator.async_refresh
-    
-    async def tracked_async_refresh(*args: Any, **kwargs: Any) -> None:
-        """Wrap async_refresh to track successful updates."""
-        try:
-            await original_async_refresh(*args, **kwargs)
-            if objects_coordinator.last_error is None:
-                # Update was successful, record the timestamp
-                objects_coordinator._last_update_success_timestamp = time.time()  # type: ignore
-        except Exception:
-            raise
-    
-    objects_coordinator.async_refresh = tracked_async_refresh  # type: ignore
     await objects_coordinator.async_config_entry_first_refresh()
+    # Record successful initial refresh
+    if objects_coordinator.last_error is None:
+        objects_coordinator._last_update_success_timestamp = time.time()  # type: ignore
 
     sensors = []
     for airplane in airplanes:
@@ -349,6 +337,14 @@ async def async_setup_entry(
         ),
     ]
     sensors.extend(diagnostic_sensors)
+
+    def update_last_update_timestamp() -> None:
+        """Update the last update timestamp when coordinator refreshes."""
+        if objects_coordinator.last_error is None:
+            objects_coordinator._last_update_success_timestamp = time.time()  # type: ignore
+
+    # Listen for coordinator updates and track successful ones
+    objects_coordinator.async_add_listener(update_last_update_timestamp)
 
     async_add_entities(sensors, True)
 
