@@ -105,15 +105,6 @@ SENSOR_TYPES = {
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement="h",
     ),
-    "tachometer": SensorEntityDescription(
-        key="tachometer",
-        name="Tachometer",
-        icon="mdi:counter",
-        translation_key="tachometer",
-        state_class=SensorStateClass.TOTAL,
-        device_class=SensorDeviceClass.DURATION,
-        native_unit_of_measurement="h",
-    ),
     "tach_time": SensorEntityDescription(
         key="tach_time",
         name="Tach Time",
@@ -204,11 +195,12 @@ async def async_setup_entry(
         p["regnr"].lower().replace("-", "_") for p in airplanes if p.get("regnr")
     }
 
-    # Clean up obsolete entities if planes were unselected
+    # Clean up obsolete entities if planes were unselected or sensor types removed
     existing_entities = er.async_entries_for_config_entry(
         ent_reg, config_entry.entry_id
     )
 
+    valid_suffixes = tuple(f"_{k}" for k in SENSOR_TYPES.keys())
     for entity in existing_entities:
         if entity.unique_id.startswith("myweblog_diagnostic_"):
             continue
@@ -216,7 +208,8 @@ async def async_setup_entry(
         is_current = any(
             entity.unique_id.startswith(f"myweblog_{reg}_") for reg in current_regnrs
         )
-        if not is_current:
+        is_valid_sensor = entity.unique_id.endswith(valid_suffixes)
+        if not is_current or not is_valid_sensor:
             _LOGGER.info("Removing obsolete MyWebLog sensor: %s", entity.entity_id)
             ent_reg.async_remove(entity.entity_id)
 
@@ -407,19 +400,6 @@ class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
             except (TypeError, ValueError):
                 return 0.0
 
-    def _get_tachometer(self, obj: dict[str, Any]) -> float:
-        ts = (obj.get("time_summary") or {}).get("total") or {}
-        if ts.get("tach") is not None:
-            return round(float(ts["tach"]), 2)
-        try:
-            return round(float(obj["flightData"]["total"]["tachoMeter"]), 2)
-        except (KeyError, TypeError, ValueError):
-            val = obj.get("ftData", {}).get("tachometer", 0)
-            try:
-                return round(float(val), 2)
-            except (TypeError, ValueError):
-                return 0.0
-
     def _get_tach_time(self, obj: dict[str, Any]) -> float:
         ts = (obj.get("time_summary") or {}).get("total") or {}
         if ts.get("tach") is not None:
@@ -540,7 +520,6 @@ class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
             "hours_to_flight_stop": self._get_hours_to_flight_stop,
             "airborne": self._get_airborne,
             "block": self._get_block,
-            "tachometer": self._get_tachometer,
             "tach_time": self._get_tach_time,
             "landings": self._get_landings,
             "model": self._get_model,

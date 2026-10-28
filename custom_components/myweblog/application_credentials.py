@@ -70,6 +70,7 @@ class MyWebLogOAuth2Implementation(config_entry_oauth2_flow.LocalOAuth2Implement
                     "code_challenge": code_challenge,
                     "code_challenge_method": "S256",
                     "cl": "se",
+                    "theme": "system",
                 }
             )
         )
