@@ -109,7 +109,6 @@ For each selected airplane, **multiple sensors** are created—one for each metr
   - `sensor.<regnr>_hours_to_go` (Hours to next maintenance)
   - `sensor.<regnr>_airborne` (Total airborne time, h)
   - `sensor.<regnr>_block` (Total block time, h)
-  - `sensor.<regnr>_tachometer` (Tachometer total, h)
   - `sensor.<regnr>_tach_time` (Tach time, h)
   - `sensor.<regnr>_landings` (Total landings)
   - `sensor.<regnr>_model` (Airplane model)
