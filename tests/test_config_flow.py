@@ -47,6 +47,7 @@ async def test_full_oauth_flow(hass: HomeAssistant) -> None:
     assert "client_id=15" in result["url"]
     assert "code_challenge=" in result["url"]
     assert "code_challenge_method=S256" in result["url"]
+    assert "theme=system" in result["url"]
 
     # Simulate callback
     state = config_entry_oauth2_flow._encode_jwt(
@@ -530,6 +531,7 @@ async def test_oauth_implementation_pkce_public_and_confidential(
     assert pub_impl.client_secret is None
     auth_url = await pub_impl.async_generate_authorize_url("flow_123")
     assert "code_challenge=" in auth_url
+    assert "theme=system" in auth_url
 
     mock_resp = MagicMock()
     mock_resp.status = 200

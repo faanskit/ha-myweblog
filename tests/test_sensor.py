@@ -115,10 +115,8 @@ async def test_airplane_sensors(hass: HomeAssistant) -> None:
         assert block.state == "1006.92"
         assert block.attributes["unit_of_measurement"] == "h"
 
-        tachometer = hass.states.get("sensor.se_dum_tachometer")
-        assert tachometer is not None
-        assert tachometer.state == "1006.0"
-        assert tachometer.attributes["unit_of_measurement"] == "h"
+        # Tachometer sensor was removed in favor of tach_time
+        assert hass.states.get("sensor.se_dum_tachometer") is None
 
         tach_time = hass.states.get("sensor.se_dum_tach_time")
         assert tach_time is not None
@@ -304,7 +302,6 @@ async def test_sensors_legacy_fallback_keys(hass: HomeAssistant) -> None:
 
         assert hass.states.get("sensor.se_dum_airborne").state == "500.25"
         assert hass.states.get("sensor.se_dum_block").state == "505.5"
-        assert hass.states.get("sensor.se_dum_tachometer").state == "503.0"
         assert hass.states.get("sensor.se_dum_tach_time").state == "503.0"
         assert hass.states.get("sensor.se_dum_landings").state == "80"
         assert hass.states.get("sensor.se_dum_yellow_tags").state == "1"
@@ -313,6 +310,49 @@ async def test_sensors_legacy_fallback_keys(hass: HomeAssistant) -> None:
         assert hass.states.get("sensor.se_dum_days_to_go_flight_stop").state == "7"
         assert hass.states.get("sensor.se_dum_hours_to_go_maintenance").state == "35.0"
         assert hass.states.get("sensor.se_dum_hours_to_go_flight_stop").state == "25.0"
+
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+
+async def test_obsolete_tachometer_cleaned_up(hass: HomeAssistant) -> None:
+    """Test that existing obsolete tachometer sensors are removed on setup."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=2,
+        unique_id="66375",
+        data={
+            "auth_implementation": DOMAIN,
+            "token": {"access_token": "valid_at"},
+            "airplanes": [
+                {"id": 5599, "regnr": "SE-DUM", "title": "SE-DUM (Piper PA-28)"}
+            ],
+        },
+    )
+    entry.add_to_hass(hass)
+
+    ent_reg = er.async_get(hass)
+    obsolete_entity = ent_reg.async_get_or_create(
+        domain="sensor",
+        platform=DOMAIN,
+        unique_id="myweblog_se_dum_tachometer",
+        config_entry=entry,
+    )
+    assert ent_reg.async_get(obsolete_entity.entity_id) is not None
+
+    with patch("custom_components.myweblog.MyWebLogClient") as mock_client:
+        instance = mock_client.return_value
+        instance.get_objects = AsyncMock(return_value=MOCK_OBJECTS_DATA)
+        instance.get_bookings = AsyncMock(return_value={"data": []})
+
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+        # Obsolete entity should be cleaned up from registry
+        assert ent_reg.async_get(obsolete_entity.entity_id) is None
+
+        # tach_time should exist
+        assert hass.states.get("sensor.se_dum_tach_time") is not None
 
         assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
