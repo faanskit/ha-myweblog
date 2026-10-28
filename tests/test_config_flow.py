@@ -1,702 +1,590 @@
-"""Test MyWeblog config flow."""
-from unittest.mock import patch, AsyncMock
+"""Unit tests for MyWeblog config flow and options flow."""
 
-from homeassistant import config_entries, data_entry_flow  # type: ignore[import]
-from homeassistant.core import HomeAssistant  # type: ignore[import]
-from homeassistant.helpers import entity_registry as er  # type: ignore[import]
-from pytest_homeassistant_custom_component.common import MockConfigEntry  # type: ignore[import]
-from custom_components.myweblog.const import DOMAIN
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from homeassistant import config_entries, data_entry_flow
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_entry_oauth2_flow
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.myweblog.const import DOMAIN, OAUTH2_AUTHORIZE
+from pyMyweblog.exceptions import MyWebLogAuthError, MyWebLogError
 
 
-async def test_flow_user_init(hass: HomeAssistant) -> None:
-    """Test the initial step of the config flow."""
+async def _start_oauth_flow(hass: HomeAssistant) -> dict:
+    """Helper to start OAuth flow and advance past pick_implementation if needed."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
-    assert result.get("type") == data_entry_flow.FlowResultType.FORM
-    assert result.get("step_id") == "user"
+    if (
+        result["type"] == data_entry_flow.FlowResultType.FORM
+        and result["step_id"] == "pick_implementation"
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"implementation": DOMAIN}
+        )
+    return result
 
 
-async def test_flow_user_success(hass: HomeAssistant) -> None:
-    """Test a successful config flow."""
+async def _complete_external_step(
+    hass: HomeAssistant, flow_id: str, state: str, code: str = "mock_code"
+) -> dict:
+    """Helper to send callback and advance past EXTERNAL_STEP_DONE to creation."""
+    result = await hass.config_entries.flow.async_configure(
+        flow_id, {"state": state, "code": code}
+    )
+    assert result["type"] == data_entry_flow.FlowResultType.EXTERNAL_STEP_DONE
+    # Calling async_configure without input invokes async_step_creation
+    return await hass.config_entries.flow.async_configure(flow_id)
+
+
+async def test_full_oauth_flow(hass: HomeAssistant) -> None:
+    """Test full OAuth 2.1 flow including airplane selection and entry creation."""
+    result = await _start_oauth_flow(hass)
+    assert result["type"] == data_entry_flow.FlowResultType.EXTERNAL_STEP
+    assert result["step_id"] == "auth"
+    assert OAUTH2_AUTHORIZE in result["url"]
+    assert "client_id=15" in result["url"]
+    assert "code_challenge=" in result["url"]
+    assert "code_challenge_method=S256" in result["url"]
+
+    # Simulate callback
+    state = config_entry_oauth2_flow._encode_jwt(
+        hass,
+        {
+            "flow_id": result["flow_id"],
+            "redirect_uri": "https://my.home-assistant.io/redirect/oauth",
+        },
+    )
+
     with patch(
-        "custom_components.myweblog.config_flow.MyWebLogClient"
-    ) as mock_client, patch(
-        "custom_components.myweblog.sensor.MyWebLogClient"
-    ) as mock_sensor_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        instance.getObjects = AsyncMock(
+        "custom_components.myweblog.application_credentials.MyWebLogOAuth2Implementation.async_resolve_external_data",
+        AsyncMock(
             return_value={
-                "Object": [
-                    {"ID": "1", "regnr": "SE-ABC", "model": "Cessna 172"},
-                    {"ID": "2", "regnr": "SE-DEF", "model": "Piper PA-28"},
+                "access_token": "mock_at",
+                "refresh_token": "mock_rt",
+                "expires_in": 3600,
+            }
+        ),
+    ), patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
+        client = mock_client.return_value
+        client.get_me = AsyncMock(
+            return_value={
+                "data": {
+                    "id": 66375,
+                    "username": "368-12345",
+                    "name": {"full": "Marcus Karlsson"},
+                }
+            }
+        )
+        client.get_objects = AsyncMock(
+            return_value={
+                "data": [
+                    {
+                        "id": 5599,
+                        "registration": "SE-DUM",
+                        "category": {"id": 0},
+                        "model": {"name": "Piper PA-28"},
+                    },
+                    {
+                        "id": 5610,
+                        "registration": "SE-JET",
+                        "category": {"id": 0},
+                        "model": {"name": "Cessna 172"},
+                    },
+                    {
+                        "id": 5602,
+                        "registration": "Tuggen",
+                        "category": {"id": 1},
+                    },
                 ]
             }
         )
 
-        sensor_instance = mock_sensor_client.return_value.__aenter__.return_value
-        sensor_instance.getObjects = AsyncMock(
+        result2 = await _complete_external_step(
+            hass, result["flow_id"], state, "mock_auth_code"
+        )
+
+        assert result2["type"] == data_entry_flow.FlowResultType.FORM
+        assert result2["step_id"] == "select_airplane"
+
+        # Select airplanes
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {"airplanes": ["SE-DUM"]},
+        )
+
+        assert result3["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        assert result3["title"] == "MyWeblog (368-12345 - 1 plane)"
+        assert result3["data"]["token"]["access_token"] == "mock_at"
+        assert len(result3["data"]["airplanes"]) == 1
+        assert result3["data"]["airplanes"][0]["regnr"] == "SE-DUM"
+
+
+async def test_oauth_flow_empty_selection_shows_error(hass: HomeAssistant) -> None:
+    """Test that submitting an empty airplane selection shows validation error."""
+    result = await _start_oauth_flow(hass)
+    state = config_entry_oauth2_flow._encode_jwt(
+        hass,
+        {
+            "flow_id": result["flow_id"],
+            "redirect_uri": "https://my.home-assistant.io/redirect/oauth",
+        },
+    )
+
+    with patch(
+        "custom_components.myweblog.application_credentials.MyWebLogOAuth2Implementation.async_resolve_external_data",
+        AsyncMock(return_value={"access_token": "mock_at", "expires_in": 3600}),
+    ), patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
+        client = mock_client.return_value
+        client.get_me = AsyncMock(
+            return_value={"data": {"id": 66375, "username": "368-12345"}}
+        )
+        client.get_objects = AsyncMock(
             return_value={
-                "Object": [{"ID": "1", "regnr": "SE-ABC", "model": "Cessna 172"}]
+                "data": [
+                    {
+                        "id": 5599,
+                        "registration": "SE-DUM",
+                        "category": {"id": 0},
+                    }
+                ]
             }
         )
-        sensor_instance.getBookings = AsyncMock(return_value={"Booking": []})
 
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        result2 = await _complete_external_step(hass, result["flow_id"], state)
+        assert result2["step_id"] == "select_airplane"
+
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {"airplanes": []},
         )
-
-        result = await hass.config_entries.flow.async_configure(
-            result.get("flow_id"),
-            {"username": "test_user", "password": "test_password"},
-        )
-
-        assert result.get("type") == data_entry_flow.FlowResultType.FORM
-        assert result.get("step_id") == "select_airplane"
-
-        result = await hass.config_entries.flow.async_configure(
-            result.get("flow_id"),
-            {"airplanes": ["SE-ABC"]},
-        )
-
-        assert result.get("type") == data_entry_flow.FlowResultType.CREATE_ENTRY
-        assert result.get("title") == "MyWeblog (test_user - 1 plane)"
-        assert result.get("data") == {
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        }
+        assert result3["type"] == data_entry_flow.FlowResultType.FORM
+        assert result3["errors"] == {"base": "no_airplanes_selected"}
 
 
-async def test_flow_user_invalid_auth(hass: HomeAssistant) -> None:
-    """Test config flow with invalid credentials."""
-    with patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
-        mock_client.return_value.__aenter__.side_effect = Exception(
-            "Invalid credentials"
-        )
+async def test_oauth_flow_api_auth_error_aborts(hass: HomeAssistant) -> None:
+    """Test that auth error during initial profile fetch aborts the flow."""
+    result = await _start_oauth_flow(hass)
+    state = config_entry_oauth2_flow._encode_jwt(
+        hass,
+        {
+            "flow_id": result["flow_id"],
+            "redirect_uri": "https://my.home-assistant.io/redirect/oauth",
+        },
+    )
 
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
+    with patch(
+        "custom_components.myweblog.application_credentials.MyWebLogOAuth2Implementation.async_resolve_external_data",
+        AsyncMock(return_value={"access_token": "mock_at", "expires_in": 3600}),
+    ), patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
+        client = mock_client.return_value
+        client.get_me = AsyncMock(side_effect=MyWebLogAuthError("Invalid token"))
 
-        result = await hass.config_entries.flow.async_configure(
-            result.get("flow_id"),
-            {"username": "test_user", "password": "test_password"},
-        )
-
-        assert result.get("type") == data_entry_flow.FlowResultType.FORM
-        assert result.get("errors") == {"base": "invalid_auth"}
-
-
-async def test_flow_user_invalid_auth_real(hass: HomeAssistant) -> None:
-    """Test config flow with invalid credentials (distinguished)."""
-    with patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
-        mock_client.return_value.__aenter__.side_effect = Exception(
-            "Invalid credentials"
-        )
-
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
-
-        result = await hass.config_entries.flow.async_configure(
-            result.get("flow_id"),
-            {"username": "test_user", "password": "test_password"},
-        )
-
-        assert result.get("type") == data_entry_flow.FlowResultType.FORM
-        assert result.get("errors") == {"base": "invalid_auth"}
+        result2 = await _complete_external_step(hass, result["flow_id"], state)
+        assert result2["type"] == data_entry_flow.FlowResultType.ABORT
+        assert result2["reason"] == "invalid_auth"
 
 
-async def test_reauth_flow(hass: HomeAssistant) -> None:
-    """Test re-authentication flow."""
+async def test_oauth_flow_connection_error_aborts(hass: HomeAssistant) -> None:
+    """Test that connection error during initial fetch aborts with cannot_connect."""
+    result = await _start_oauth_flow(hass)
+    state = config_entry_oauth2_flow._encode_jwt(
+        hass,
+        {
+            "flow_id": result["flow_id"],
+            "redirect_uri": "https://my.home-assistant.io/redirect/oauth",
+        },
+    )
+
+    with patch(
+        "custom_components.myweblog.application_credentials.MyWebLogOAuth2Implementation.async_resolve_external_data",
+        AsyncMock(return_value={"access_token": "mock_at", "expires_in": 3600}),
+    ), patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
+        client = mock_client.return_value
+        client.get_me = AsyncMock(side_effect=MyWebLogError("Timeout"))
+
+        result2 = await _complete_external_step(hass, result["flow_id"], state)
+        assert result2["type"] == data_entry_flow.FlowResultType.ABORT
+        assert result2["reason"] == "cannot_connect"
+
+
+async def test_oauth_flow_already_configured(hass: HomeAssistant) -> None:
+    """Test that configuring an account already registered aborts."""
     entry = MockConfigEntry(
         domain=DOMAIN,
-        data={
-            "username": "old_user",
-            "password": "old_password",
-            "app_token": "old_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-        title="MyWeblog (old_user - 1 plane)",
+        unique_id="66375",
+        data={"username": "existing_user"},
     )
     entry.add_to_hass(hass)
 
+    result = await _start_oauth_flow(hass)
+    state = config_entry_oauth2_flow._encode_jwt(
+        hass,
+        {
+            "flow_id": result["flow_id"],
+            "redirect_uri": "https://my.home-assistant.io/redirect/oauth",
+        },
+    )
+
     with patch(
-        "custom_components.myweblog.config_flow.MyWebLogClient"
-    ) as mock_client, patch(
-        "custom_components.myweblog.sensor.MyWebLogClient"
-    ) as mock_sensor_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="new_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {"ID": "1", "regnr": "SE-ABC", "model": "Cessna 172"},
-                ]
-            }
+        "custom_components.myweblog.application_credentials.MyWebLogOAuth2Implementation.async_resolve_external_data",
+        AsyncMock(return_value={"access_token": "mock_at", "expires_in": 3600}),
+    ), patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
+        client = mock_client.return_value
+        client.get_me = AsyncMock(
+            return_value={"data": {"id": 66375, "username": "368-12345"}}
         )
+        client.get_objects = AsyncMock(return_value={"data": []})
 
-        sensor_instance = mock_sensor_client.return_value.__aenter__.return_value
-        sensor_instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {"ID": "1", "regnr": "SE-ABC", "model": "Cessna 172"},
-                ]
-            }
-        )
-        sensor_instance.getBookings = AsyncMock(return_value={"Booking": []})
-
-        # First call should show the form (don't pass data - it will be available via context)
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={
-                "source": config_entries.SOURCE_REAUTH,
-                "entry_id": entry.entry_id,
-            },
-        )
-
-        assert result.get("type") == data_entry_flow.FlowResultType.FORM
-        assert result.get("step_id") == "reauth"
-
-        # Configure with new credentials
-        result = await hass.config_entries.flow.async_configure(
-            result.get("flow_id"),
-            {"username": "new_user", "password": "new_password"},
-        )
-
-        assert result.get("type") == data_entry_flow.FlowResultType.ABORT
-        assert result.get("reason") == "reauth_successful"
-
-        # Wait for reload to complete
-        await hass.async_block_till_done()
-
-        # Check that entry was updated
-        updated_entry = hass.config_entries.async_get_entry(entry.entry_id)
-        assert updated_entry is not None
-        assert updated_entry.data["username"] == "new_user"
-        assert updated_entry.data["password"] == "new_password"
-        assert updated_entry.data["app_token"] == "new_token"
+        result2 = await _complete_external_step(hass, result["flow_id"], state)
+        assert result2["type"] == data_entry_flow.FlowResultType.ABORT
+        assert result2["reason"] == "already_configured"
 
 
-async def test_reauth_flow_invalid_auth(hass: HomeAssistant) -> None:
-    """Test re-authentication flow with invalid credentials."""
+async def test_reauth_flow_success(hass: HomeAssistant) -> None:
+    """Test successful re-authentication updates the token and preserves airplanes."""
     entry = MockConfigEntry(
         domain=DOMAIN,
+        unique_id="66375",
         data={
-            "username": "old_user",
-            "password": "old_password",
-            "app_token": "old_token",
+            "auth_implementation": DOMAIN,
+            "token": {"access_token": "expired_at"},
             "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
+                {"id": 5599, "regnr": "SE-DUM", "title": "SE-DUM (Aircraft)"}
             ],
+            "username": "368-12345",
         },
-        title="MyWeblog (old_user - 1 plane)",
     )
     entry.add_to_hass(hass)
 
-    with patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
-        mock_client.return_value.__aenter__.side_effect = Exception(
-            "Invalid credentials"
+    result = await entry.start_reauth_flow(hass)
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "reauth_confirm"
+
+    result_confirm = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {}
+    )
+    if (
+        result_confirm["type"] == data_entry_flow.FlowResultType.FORM
+        and result_confirm["step_id"] == "pick_implementation"
+    ):
+        result_confirm = await hass.config_entries.flow.async_configure(
+            result_confirm["flow_id"], {"implementation": DOMAIN}
         )
 
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={
-                "source": config_entries.SOURCE_REAUTH,
-                "entry_id": entry.entry_id,
-            },
+    assert result_confirm["type"] == data_entry_flow.FlowResultType.EXTERNAL_STEP
+
+    state = config_entry_oauth2_flow._encode_jwt(
+        hass,
+        {
+            "flow_id": result["flow_id"],
+            "redirect_uri": "https://my.home-assistant.io/redirect/oauth",
+        },
+    )
+
+    with patch(
+        "custom_components.myweblog.application_credentials.MyWebLogOAuth2Implementation.async_resolve_external_data",
+        AsyncMock(
+            return_value={
+                "access_token": "new_refreshed_at",
+                "refresh_token": "new_refreshed_rt",
+                "expires_in": 3600,
+            }
+        ),
+    ), patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
+        client = mock_client.return_value
+        client.get_me = AsyncMock(
+            return_value={"data": {"id": 66375, "username": "368-12345"}}
+        )
+        client.get_objects = AsyncMock(return_value={"data": []})
+
+        result_oauth = await _complete_external_step(
+            hass, result["flow_id"], state, "new_code"
         )
 
-        result = await hass.config_entries.flow.async_configure(
-            result.get("flow_id"),
-            {"username": "new_user", "password": "wrong_password"},
+        assert result_oauth["type"] == data_entry_flow.FlowResultType.ABORT
+        assert result_oauth["reason"] == "reauth_successful"
+        assert entry.data["token"]["access_token"] == "new_refreshed_at"
+        # Preserves existing airplane list
+        assert len(entry.data["airplanes"]) == 1
+        assert entry.data["airplanes"][0]["regnr"] == "SE-DUM"
+
+
+async def test_reauth_flow_account_mismatch(hass: HomeAssistant) -> None:
+    """Test that re-authenticating with a different user ID aborts with account_mismatch."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="66375",
+        data={
+            "auth_implementation": DOMAIN,
+            "token": {"access_token": "expired_at"},
+            "airplanes": [{"id": 5599, "regnr": "SE-DUM"}],
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reauth_flow(hass)
+    assert result["step_id"] == "reauth_confirm"
+
+    result_confirm = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {}
+    )
+    if (
+        result_confirm["type"] == data_entry_flow.FlowResultType.FORM
+        and result_confirm["step_id"] == "pick_implementation"
+    ):
+        result_confirm = await hass.config_entries.flow.async_configure(
+            result_confirm["flow_id"], {"implementation": DOMAIN}
         )
 
-        assert result.get("type") == data_entry_flow.FlowResultType.FORM
-        assert result.get("errors") == {"base": "invalid_auth"}
+    state = config_entry_oauth2_flow._encode_jwt(
+        hass,
+        {
+            "flow_id": result["flow_id"],
+            "redirect_uri": "https://my.home-assistant.io/redirect/oauth",
+        },
+    )
+
+    with patch(
+        "custom_components.myweblog.application_credentials.MyWebLogOAuth2Implementation.async_resolve_external_data",
+        AsyncMock(return_value={"access_token": "other_at", "expires_in": 3600}),
+    ), patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
+        client = mock_client.return_value
+        # Returns different user ID (99999 instead of 66375)
+        client.get_me = AsyncMock(
+            return_value={"data": {"id": 99999, "username": "other_user"}}
+        )
+        client.get_objects = AsyncMock(return_value={"data": []})
+
+        result_oauth = await _complete_external_step(
+            hass, result["flow_id"], state, "new_code"
+        )
+
+        assert result_oauth["type"] == data_entry_flow.FlowResultType.ABORT
+        assert result_oauth["reason"] == "account_mismatch"
 
 
 async def test_options_flow(hass: HomeAssistant) -> None:
-    """Test options flow for modifying airplane selection."""
+    """Test options flow to reconfigure selected airplanes."""
     entry = MockConfigEntry(
         domain=DOMAIN,
+        unique_id="66375",
         data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
+            "auth_implementation": DOMAIN,
+            "token": {"access_token": "valid_at"},
+            "username": "368-12345",
             "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
+                {"id": 5599, "regnr": "SE-DUM", "title": "SE-DUM (Piper PA-28)"}
             ],
         },
-        title="MyWeblog (test_user - 1 plane)",
     )
     entry.add_to_hass(hass)
 
-    with patch(
-        "custom_components.myweblog.config_flow.MyWebLogClient"
-    ) as mock_client, patch(
-        "custom_components.myweblog.sensor.MyWebLogClient"
-    ) as mock_sensor_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="new_token")
-        instance.getObjects = AsyncMock(
+    with patch("custom_components.myweblog.MyWebLogClient") as mock_client:
+        instance = mock_client.return_value
+        instance.get_objects = AsyncMock(
             return_value={
-                "Object": [
-                    {"ID": "1", "regnr": "SE-ABC", "model": "Cessna 172"},
-                    {"ID": "2", "regnr": "SE-DEF", "model": "Piper PA-28"},
+                "data": [
+                    {
+                        "id": 5599,
+                        "registration": "SE-DUM",
+                        "category": {"id": 0},
+                        "model": {"name": "Piper PA-28"},
+                    },
+                    {
+                        "id": 5610,
+                        "registration": "SE-JET",
+                        "category": {"id": 0},
+                        "model": {"name": "Cessna 172"},
+                    },
                 ]
             }
         )
+        instance.get_bookings = AsyncMock(return_value={"data": []})
 
-        sensor_instance = mock_sensor_client.return_value.__aenter__.return_value
-        sensor_instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {"ID": "1", "regnr": "SE-ABC", "model": "Cessna 172"},
-                    {"ID": "2", "regnr": "SE-DEF", "model": "Piper PA-28"},
-                ]
-            }
-        )
-        sensor_instance.getBookings = AsyncMock(return_value={"Booking": []})
-
-        # Start options flow
-        result = await hass.config_entries.options.async_init(entry.entry_id)
-        assert result.get("type") == data_entry_flow.FlowResultType.FORM
-        assert result.get("step_id") == "init"
-
-        # Add another airplane
-        result = await hass.config_entries.options.async_configure(
-            result.get("flow_id"),
-            {"airplanes": ["SE-ABC", "SE-DEF"]},
-        )
-
-        assert result.get("type") == data_entry_flow.FlowResultType.CREATE_ENTRY
+        # Set up entry so runtime_data is populated with mock client
+        await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-        # Verify entry was updated
-        updated_entry = hass.config_entries.async_get_entry(entry.entry_id)
-        assert updated_entry is not None
-        assert len(updated_entry.data["airplanes"]) == 2
-        assert updated_entry.data["app_token"] == "new_token"
+        # Initialize options flow
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        assert result["type"] == data_entry_flow.FlowResultType.FORM
+        assert result["step_id"] == "options"
+
+        # Select both SE-DUM and SE-JET
+        result2 = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"airplanes": ["SE-DUM", "SE-JET"]},
+        )
+
+        assert result2["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        assert len(entry.data["airplanes"]) == 2
+        regs = [p["regnr"] for p in entry.data["airplanes"]]
+        assert "SE-DUM" in regs
+        assert "SE-JET" in regs
 
 
-async def test_options_flow_remove_airplane(hass: HomeAssistant) -> None:
-    """Test options flow for removing an airplane and verifying entity cleanup."""
+async def test_options_flow_empty_selection_shows_error(
+    hass: HomeAssistant,
+) -> None:
+    """Test options flow shows validation error on empty selection."""
     entry = MockConfigEntry(
         domain=DOMAIN,
+        unique_id="66375",
         data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"},
-                {"id": "2", "regnr": "SE-DEF", "title": "SE-DEF (Piper PA-28)"},
-            ],
+            "auth_implementation": DOMAIN,
+            "token": {"access_token": "valid_at"},
+            "airplanes": [{"id": 5599, "regnr": "SE-DUM", "title": "SE-DUM"}],
         },
-        title="MyWeblog (test_user - 2 planes)",
     )
     entry.add_to_hass(hass)
 
-    # Pre-populate entity registry
-    registry = er.async_get(hass)
-    # Entity for SE-ABC (will be kept)
-    abc_entry = registry.async_get_or_create(
-        "sensor",
-        DOMAIN,
-        "myweblog_se_abc_next_booking",
-        config_entry=entry,
-    )
-    # Entity for SE-DEF (will be removed)
-    def_entry = registry.async_get_or_create(
-        "sensor",
-        DOMAIN,
-        "myweblog_se_def_next_booking",
-        config_entry=entry,
-    )
-    # Diagnostic entity (will be kept)
-    diag_entry = registry.async_get_or_create(
-        "sensor",
-        DOMAIN,
-        "myweblog_diagnostic_airplane_count",
-        config_entry=entry,
-    )
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
 
-    # Verify they exist
-    assert registry.async_get(abc_entry.entity_id) is not None
-    assert registry.async_get(def_entry.entity_id) is not None
-    assert registry.async_get(diag_entry.entity_id) is not None
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"airplanes": []},
+    )
+    assert result2["type"] == data_entry_flow.FlowResultType.FORM
+    assert result2["errors"] == {"base": "no_airplanes_selected"}
+
+
+async def test_reauth_migrated_v1_entry_without_unique_id(
+    hass: HomeAssistant,
+) -> None:
+    """Test re-auth for a migrated v1 entry that had unique_id=None."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=2,
+        unique_id=None,
+        data={
+            "username": "old_user",
+            "airplanes": [{"id": 5599, "regnr": "SE-DUM", "title": "SE-DUM"}],
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reauth_flow(hass)
+    assert result["step_id"] == "reauth_confirm"
+
+    result_confirm = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {}
+    )
+    if (
+        result_confirm["type"] == data_entry_flow.FlowResultType.FORM
+        and result_confirm["step_id"] == "pick_implementation"
+    ):
+        result_confirm = await hass.config_entries.flow.async_configure(
+            result_confirm["flow_id"], {"implementation": DOMAIN}
+        )
+
+    state = config_entry_oauth2_flow._encode_jwt(
+        hass,
+        {
+            "flow_id": result["flow_id"],
+            "redirect_uri": "https://my.home-assistant.io/redirect/oauth",
+        },
+    )
 
     with patch(
-        "custom_components.myweblog.config_flow.MyWebLogClient"
-    ) as mock_client, patch(
-        "custom_components.myweblog.sensor.MyWebLogClient"
-    ) as mock_sensor_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="new_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {"ID": "1", "regnr": "SE-ABC", "model": "Cessna 172"},
-                    {"ID": "2", "regnr": "SE-DEF", "model": "Piper PA-28"},
-                ]
+        "custom_components.myweblog.application_credentials.MyWebLogOAuth2Implementation.async_resolve_external_data",
+        AsyncMock(return_value={"access_token": "migrated_at", "expires_in": 3600}),
+    ), patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
+        client = mock_client.return_value
+        client.get_me = AsyncMock(
+            return_value={"data": {"id": 66375, "username": "368-12345"}}
+        )
+        client.get_objects = AsyncMock(return_value={"data": []})
+
+        result_oauth = await _complete_external_step(
+            hass, result["flow_id"], state, "migrated_code"
+        )
+
+        assert result_oauth["type"] == data_entry_flow.FlowResultType.ABORT
+        assert result_oauth["reason"] == "reauth_successful"
+        assert entry.unique_id == "66375"
+        assert entry.data["token"]["access_token"] == "migrated_at"
+        assert entry.data["username"] == "368-12345"
+        assert entry.data["airplanes"] == [
+            {"id": 5599, "regnr": "SE-DUM", "title": "SE-DUM"}
+        ]
+
+
+async def test_oauth_implementation_pkce_public_and_confidential(
+    hass: HomeAssistant,
+) -> None:
+    """Test MyWebLogOAuth2Implementation omits client_secret in Public Client mode."""
+    from custom_components.myweblog.application_credentials import (
+        MyWebLogOAuth2Implementation,
+    )
+
+    # 1. Public Client (Option 2: client_secret=None)
+    pub_impl = MyWebLogOAuth2Implementation(
+        hass=hass,
+        domain=DOMAIN,
+        client_id="15",
+        client_secret=None,
+    )
+    assert pub_impl.client_secret is None
+    auth_url = await pub_impl.async_generate_authorize_url("flow_123")
+    assert "code_challenge=" in auth_url
+
+    mock_resp = MagicMock()
+    mock_resp.status = 200
+    mock_resp.json = AsyncMock(
+        return_value={"access_token": "pub_at", "expires_in": 3600}
+    )
+
+    with patch(
+        "homeassistant.helpers.config_entry_oauth2_flow.async_get_clientsession"
+    ) as mock_get_session:
+        mock_session = mock_get_session.return_value
+        mock_session.post = AsyncMock(return_value=mock_resp)
+
+        await pub_impl.async_resolve_external_data(
+            {
+                "code": "auth_code_1",
+                "state": {
+                    "flow_id": "flow_123",
+                    "redirect_uri": "https://my.home-assistant.io/redirect/oauth",
+                },
             }
         )
 
-        sensor_instance = mock_sensor_client.return_value.__aenter__.return_value
-        sensor_instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {"ID": "1", "regnr": "SE-ABC", "model": "Cessna 172"},
-                ]
-            }
-        )
-        sensor_instance.getBookings = AsyncMock(return_value={"Booking": []})
+        posted_data = mock_session.post.call_args.kwargs["data"]
+        assert "client_secret" not in posted_data
+        assert posted_data["client_id"] == "15"
+        assert "code_verifier" in posted_data
+        assert posted_data["device_name"] == "Home Assistant"
 
-        # Start options flow
-        result = await hass.config_entries.options.async_init(entry.entry_id)
-        assert result.get("type") == data_entry_flow.FlowResultType.FORM
-
-        # Remove one airplane (SE-DEF)
-        result = await hass.config_entries.options.async_configure(
-            result.get("flow_id"),
-            {"airplanes": ["SE-ABC"]},
-        )
-
-        assert result.get("type") == data_entry_flow.FlowResultType.CREATE_ENTRY
-
-        # We need to wait for the reload to complete
-        await hass.async_block_till_done()
-
-        # Verify entry was updated
-        updated_entry = hass.config_entries.async_get_entry(entry.entry_id)
-        assert updated_entry is not None
-        assert len(updated_entry.data["airplanes"]) == 1
-        assert updated_entry.data["airplanes"][0]["regnr"] == "SE-ABC"
-
-        # Verify entity registry cleanup
-        assert registry.async_get(abc_entry.entity_id) is not None
-        assert registry.async_get(def_entry.entity_id) is None  # Should be removed
-        assert registry.async_get(diag_entry.entity_id) is not None  # Should be kept
-
-
-async def test_options_flow_no_selection(hass: HomeAssistant) -> None:
-    """Test options flow with no airplanes selected."""
-    entry = MockConfigEntry(
+    # 2. Confidential Client (Option 1: with client_secret)
+    conf_impl = MyWebLogOAuth2Implementation(
+        hass=hass,
         domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-        title="MyWeblog (test_user - 1 plane)",
+        client_id="15",
+        client_secret="top_secret",
     )
-    entry.add_to_hass(hass)
+    assert conf_impl.client_secret == "top_secret"
+    await conf_impl.async_generate_authorize_url("flow_456")
 
-    with patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="new_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {"ID": "1", "regnr": "SE-ABC", "model": "Cessna 172"},
-                ]
+    with patch(
+        "homeassistant.helpers.config_entry_oauth2_flow.async_get_clientsession"
+    ) as mock_get_session:
+        mock_session = mock_get_session.return_value
+        mock_session.post = AsyncMock(return_value=mock_resp)
+
+        await conf_impl.async_resolve_external_data(
+            {
+                "code": "auth_code_2",
+                "state": {
+                    "flow_id": "flow_456",
+                    "redirect_uri": "https://my.home-assistant.io/redirect/oauth",
+                },
             }
         )
 
-        # Start options flow
-        result = await hass.config_entries.options.async_init(entry.entry_id)
-        assert result.get("type") == data_entry_flow.FlowResultType.FORM
-
-        # Try to submit with no selection
-        result = await hass.config_entries.options.async_configure(
-            result.get("flow_id"),
-            {"airplanes": []},
-        )
-
-        assert result.get("type") == data_entry_flow.FlowResultType.FORM
-        assert result.get("errors") == {"base": "no_airplanes_selected"}
-
-
-async def test_options_flow_invalid_auth(hass: HomeAssistant) -> None:
-    """Test options flow with invalid credentials."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-        title="MyWeblog (test_user - 1 plane)",
-    )
-    entry.add_to_hass(hass)
-
-    with patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
-        mock_client.return_value.__aenter__.side_effect = Exception(
-            "Invalid credentials"
-        )
-
-        # Start options flow
-        result = await hass.config_entries.options.async_init(entry.entry_id)
-        assert result.get("type") == data_entry_flow.FlowResultType.FORM
-
-        # Try to submit - should fail with auth error
-        result = await hass.config_entries.options.async_configure(
-            result.get("flow_id"),
-            {"airplanes": ["SE-ABC"]},
-        )
-
-        assert result.get("type") == data_entry_flow.FlowResultType.FORM
-        assert result.get("errors") == {"base": "invalid_auth"}
-
-
-async def test_is_auth_error(hass: HomeAssistant) -> None:
-    """Test is_auth_error helper with various error messages."""
-    from custom_components.myweblog.config_flow import is_auth_error
-
-    # Test various auth error patterns
-    assert is_auth_error(Exception("Invalid credentials")) is True
-    assert is_auth_error(Exception("ogiltigt lösenord")) is True
-    assert is_auth_error(Exception("Unauthorized access")) is True
-    assert is_auth_error(Exception("Forbidden")) is True
-    assert is_auth_error(Exception("401 error")) is True
-    assert is_auth_error(Exception("403 forbidden")) is True
-    assert is_auth_error(Exception("Authentication failed")) is True
-
-    # Test non-auth errors
-    assert is_auth_error(Exception("Connection timeout")) is False
-    assert is_auth_error(Exception("Network error")) is False
-    assert is_auth_error(Exception("Server error 500")) is False
-
-
-async def test_validate_credentials_connection_error(hass: HomeAssistant) -> None:
-    """Test validate_credentials with connection errors."""
-    from custom_components.myweblog.config_flow import (
-        validate_credentials,
-        CannotConnect,
-    )
-
-    with patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
-        mock_client.return_value.__aenter__.side_effect = Exception(
-            "Connection timeout"
-        )
-
-        try:
-            await validate_credentials(hass, "test_user", "test_password")
-            assert False, "Should have raised CannotConnect"
-        except CannotConnect:
-            pass  # Expected
-        except Exception:
-            assert False, "Should have raised CannotConnect, not other exception"
-
-
-async def test_validate_credentials_no_airplanes(hass: HomeAssistant) -> None:
-    """Test validate_credentials with no airplanes found."""
-    from custom_components.myweblog.config_flow import validate_credentials
-
-    with patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="token")
-        instance.getObjects = AsyncMock(return_value={"Object": []})  # No airplanes
-
-        airplanes, token = await validate_credentials(
-            hass, "test_user", "test_password"
-        )
-        assert airplanes == []
-        assert token == "token"
-
-
-async def test_validate_credentials_invalid_callsign(hass: HomeAssistant) -> None:
-    """Test validate_credentials with invalid callsign patterns."""
-    from custom_components.myweblog.config_flow import validate_credentials
-
-    with patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="token")
-        # Object with invalid callsign (doesn't match pattern)
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {"ID": "1", "regnr": "INVALID", "model": "Test"}  # Invalid pattern
-                ]
-            }
-        )
-
-        airplanes, token = await validate_credentials(
-            hass, "test_user", "test_password"
-        )
-        # Invalid callsigns should be filtered out
-        assert airplanes == []
-        assert token == "token"
-
-
-async def test_flow_user_cannot_connect(hass: HomeAssistant) -> None:
-    """Test config flow with CannotConnect error."""
-    from custom_components.myweblog.config_flow import CannotConnect
-
-    with patch(
-        "custom_components.myweblog.config_flow.validate_credentials"
-    ) as mock_validate:
-        mock_validate.side_effect = CannotConnect()
-
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"username": "test_user", "password": "test_password"}
-        )
-
-        assert result.get("type") == data_entry_flow.FlowResultType.FORM
-        assert result.get("errors") == {"base": "cannot_connect"}
-
-
-async def test_flow_user_generic_exception(hass: HomeAssistant) -> None:
-    """Test config flow with generic exception."""
-    with patch(
-        "custom_components.myweblog.config_flow.validate_credentials"
-    ) as mock_validate:
-        mock_validate.side_effect = ValueError("Unexpected error")
-
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"username": "test_user", "password": "test_password"}
-        )
-
-        assert result.get("type") == data_entry_flow.FlowResultType.FORM
-        assert result.get("errors") == {"base": "unknown"}
-
-
-async def test_reauth_cannot_connect(hass: HomeAssistant) -> None:
-    """Test reauth flow with CannotConnect error."""
-    from custom_components.myweblog.config_flow import CannotConnect
-
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "token",
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch(
-        "custom_components.myweblog.config_flow.validate_credentials"
-    ) as mock_validate:
-        mock_validate.side_effect = CannotConnect()
-
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={
-                "source": config_entries.SOURCE_REAUTH,
-                "entry_id": entry.entry_id,
-            },
-        )
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"username": "test_user", "password": "test_password"}
-        )
-
-        assert result.get("type") == data_entry_flow.FlowResultType.FORM
-        assert result.get("errors") == {"base": "cannot_connect"}
-
-
-async def test_reauth_generic_exception(hass: HomeAssistant) -> None:
-    """Test reauth flow with generic exception."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "token",
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch(
-        "custom_components.myweblog.config_flow.validate_credentials"
-    ) as mock_validate:
-        mock_validate.side_effect = ValueError("Unexpected error")
-
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={
-                "source": config_entries.SOURCE_REAUTH,
-                "entry_id": entry.entry_id,
-            },
-        )
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"username": "test_user", "password": "test_password"}
-        )
-
-        assert result.get("type") == data_entry_flow.FlowResultType.FORM
-        assert result.get("errors") == {"base": "unknown"}
-
-
-async def test_options_flow_cannot_connect(hass: HomeAssistant) -> None:
-    """Test options flow with CannotConnect error."""
-    from custom_components.myweblog.config_flow import CannotConnect
-
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "token",
-            "airplanes": [{"id": "1", "regnr": "SE-ABC", "title": "SE-ABC"}],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch(
-        "custom_components.myweblog.config_flow.validate_credentials"
-    ) as mock_validate:
-        mock_validate.side_effect = CannotConnect()
-
-        result = await hass.config_entries.options.async_init(entry.entry_id)
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {"airplanes": ["SE-ABC"]}
-        )
-
-        assert result.get("type") == data_entry_flow.FlowResultType.FORM
-        assert result.get("errors") == {"base": "cannot_connect"}
-
-
-async def test_options_flow_generic_exception(hass: HomeAssistant) -> None:
-    """Test options flow with generic exception."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "token",
-            "airplanes": [{"id": "1", "regnr": "SE-ABC", "title": "SE-ABC"}],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch(
-        "custom_components.myweblog.config_flow.validate_credentials"
-    ) as mock_validate:
-        mock_validate.side_effect = ValueError("Unexpected error")
-
-        result = await hass.config_entries.options.async_init(entry.entry_id)
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {"airplanes": ["SE-ABC"]}
-        )
-
-        assert result.get("type") == data_entry_flow.FlowResultType.FORM
-        assert result.get("errors") == {"base": "unknown"}
+        posted_data = mock_session.post.call_args.kwargs["data"]
+        assert posted_data["client_secret"] == "top_secret"
+        assert "code_verifier" in posted_data

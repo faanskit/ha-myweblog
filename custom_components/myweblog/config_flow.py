@@ -1,34 +1,45 @@
-"""Config flow for MyWeblog integration."""
+"""Config flow for MyWeblog integration with OAuth 2.1 + PKCE."""
 
 from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
 from typing import Any
 
-from pyMyweblog import MyWebLogClient
-import voluptuous as vol  # type: ignore[import]
+import aiohttp
+from homeassistant import config_entries
+from homeassistant.data_entry_flow import FlowResult
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import config_entry_oauth2_flow, config_validation as cv
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+import voluptuous as vol
 
-from homeassistant import config_entries  # type: ignore[import]
-from homeassistant.core import HomeAssistant  # type: ignore[import]
-from homeassistant.data_entry_flow import FlowResult  # type: ignore[import]
-from homeassistant.exceptions import HomeAssistantError  # type: ignore[import]
-from homeassistant.helpers import config_validation as cv  # type: ignore[import]
+from pyMyweblog.auth import AbstractMyWebLogAuth
+from pyMyweblog.client import MyWebLogClient
+from pyMyweblog.exceptions import MyWebLogAuthError
 
-from .const import APP_SECRET, DOMAIN
+from .application_credentials import async_register_default_implementation
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-STEP_USER_DATA_SCHEMA = vol.Schema(
-    {
-        vol.Required("username"): str,
-        vol.Required("password"): str,
-    }
-)
+
+class _StaticTokenAuth(AbstractMyWebLogAuth):
+    """Temporary token auth for config flow setup."""
+
+    def __init__(self, websession: aiohttp.ClientSession, access_token: str) -> None:
+        super().__init__(websession)
+        self._access_token = access_token
+
+    async def async_get_access_token(self) -> str:
+        return self._access_token
 
 
 def is_auth_error(err: Exception) -> bool:
     """Check if an exception indicates an authentication error."""
+    if isinstance(err, MyWebLogAuthError):
+        return True
     err_str = str(err).lower()
     return (
         "ogiltigt" in err_str
@@ -41,56 +52,64 @@ def is_auth_error(err: Exception) -> bool:
     )
 
 
-async def validate_credentials(
-    hass: HomeAssistant, username: str, password: str
-) -> tuple[list[dict[str, Any]], str]:
-    """Validate the user credentials and return (airplanes, app_token)."""
-    _LOGGER.debug("Validating credentials for username=%s", username)
-    try:
-        async with MyWebLogClient(username, password) as client:
-            app_token = await client.obtainAppToken(APP_SECRET)
-            result = await client.getObjects()
+def filter_airplanes(objects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Filter and format airplanes from objects list."""
+    callsign_pattern = re.compile(r"^[A-Z0-9]{1,2}-[A-Z0-9]+$", re.IGNORECASE)
+    airplanes = []
+    for obj in objects:
+        regnr = obj.get("registration") or obj.get("regnr") or ""
+        cat_info = obj.get("category")
+        cat_id = cat_info.get("id") if isinstance(cat_info, dict) else None
+        plane_id = obj.get("id") or obj.get("ID")
 
-            # Filter out non-planes and extract required data
-            airplanes = []
-
-            callsign_pattern = re.compile(r"^[A-Z0-9]{1,2}-[A-Z0-9]+$", re.IGNORECASE)
-            for obj in result.get("Object", []):
-                regnr = obj.get("regnr", "")
-                plane_id = obj.get("ID")
-                if callsign_pattern.match(regnr) and plane_id:
-                    airplanes.append(
-                        {
-                            "id": plane_id,
-                            "regnr": regnr,
-                            "title": f"{regnr} ({obj.get('model', '')})",
-                        }
-                    )
-            _LOGGER.info(
-                "Validated credentials for %s, found %d airplanes",
-                username,
-                len(airplanes),
+        # In API v5, category 0 is Aircraft. Alternatively match callsign pattern.
+        is_aircraft = (
+            (cat_id == 0) if cat_id is not None else bool(callsign_pattern.match(regnr))
+        )
+        if is_aircraft and plane_id and regnr:
+            model_info = obj.get("model") or {}
+            model_str = (
+                (
+                    (model_info.get("name") or model_info.get("designator"))
+                    if isinstance(model_info, dict)
+                    else str(model_info)
+                )
+                or obj.get("comment")
+                or ""
             )
-            return airplanes, app_token or ""
+            title = f"{regnr} ({model_str})" if model_str else regnr
+            airplanes.append(
+                {
+                    "id": plane_id,
+                    "regnr": regnr,
+                    "title": title,
+                }
+            )
+    return airplanes
 
-    except Exception as err:
-        _LOGGER.error("Credential validation failed for username=%s: %s", username, err)
-        if is_auth_error(err):
-            raise InvalidAuth from err
-        raise CannotConnect from err
 
+class ConfigFlow(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domain=DOMAIN):
+    """Handle a config flow for MyWeblog with OAuth 2.1."""
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[misc]
-    """Handle a config flow for MyWeblog."""
-
-    VERSION = 1
+    DOMAIN = DOMAIN
+    VERSION = 2
 
     def __init__(self) -> None:
         """Initialize the config flow."""
-        self._username = None
-        self._password = None
-        self._airplanes = []
-        self._app_token = None
+        super().__init__()
+        self._oauth_data: dict[str, Any] = {}
+        self._me: dict[str, Any] = {}
+        self._airplanes: list[dict[str, Any]] = []
+
+    @property
+    def logger(self) -> logging.Logger:
+        """Return logger."""
+        return _LOGGER
+
+    @property
+    def extra_authorize_data(self) -> dict[str, Any]:
+        """Extra data to pass to authorize endpoint."""
+        return {"cl": "se"}
 
     @staticmethod
     @config_entries.callback
@@ -100,135 +119,130 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[misc
         """Get the options flow for this handler."""
         return OptionsFlowHandler(config_entry)
 
-    async def async_step_reauth(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Handle re-authentication."""
-        _LOGGER.debug("Starting re-authentication flow")
-        errors = {}
-        entry = self._get_reauth_entry()
-
-        if user_input is not None:
-            try:
-                airplanes, app_token = await validate_credentials(
-                    self.hass, user_input["username"], user_input["password"]
-                )
-                _LOGGER.info(
-                    "Re-authentication successful for %s", user_input["username"]
-                )
-
-                # Update the config entry with new credentials
-                if entry is not None:
-                    self.hass.config_entries.async_update_entry(
-                        entry,
-                        data={
-                            **entry.data,
-                            "username": user_input["username"],
-                            "password": user_input["password"],
-                            "app_token": app_token,
-                        },
-                    )
-                    await self.hass.config_entries.async_reload(entry.entry_id)
-                return self.async_abort(reason="reauth_successful")
-            except CannotConnect:
-                _LOGGER.error("Re-auth: cannot connect")
-                errors["base"] = "cannot_connect"
-            except InvalidAuth:
-                _LOGGER.error("Re-auth: invalid credentials")
-                errors["base"] = "invalid_auth"
-            except Exception:
-                _LOGGER.exception("Re-auth: unexpected exception")
-                errors["base"] = "unknown"
-
-        return self.async_show_form(
-            step_id="reauth",
-            data_schema=STEP_USER_DATA_SCHEMA,
-            errors=errors,
-            description_placeholders={"username": entry.title if entry else "Unknown"},
-        )
-
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle the initial step for username/password."""
-        _LOGGER.debug("Starting config flow: step_user")
-        errors = {}
+        """Handle user step by registering default implementation and starting OAuth."""
+        await async_register_default_implementation(self.hass)
+        return await super().async_step_user(user_input)
 
-        if user_input is not None:
-            try:
-                self._airplanes, self._app_token = await validate_credentials(
-                    self.hass, user_input["username"], user_input["password"]
-                )
-                self._username = user_input["username"]
-                self._password = user_input["password"]
-                _LOGGER.info(
-                    "Config flow: credentials validated for %s", self._username
-                )
-                return await self.async_step_select_airplane()
-            except CannotConnect:
-                _LOGGER.error(
-                    "Config flow: cannot connect for username=%s",
-                    user_input.get("username"),
-                )
-                errors["base"] = "cannot_connect"
-            except InvalidAuth:
-                _LOGGER.error(
-                    "Config flow: invalid auth for username=%s",
-                    user_input.get("username"),
-                )
-                errors["base"] = "invalid_auth"
-            except Exception:
-                _LOGGER.exception("Config flow: unexpected exception")
-                errors["base"] = "unknown"
+    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> FlowResult:
+        """Perform reauth upon an API authentication error."""
+        return await self.async_step_reauth_confirm()
 
-        return self.async_show_form(
-            step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
-        )
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Confirm reauth dialog."""
+        if user_input is None:
+            return self.async_show_form(step_id="reauth_confirm")
+        return await self.async_step_user()
+
+    async def async_oauth_create_entry(self, data: dict[str, Any]) -> FlowResult:
+        """Handle creation of entry once OAuth flow completes."""
+        token = data["token"]["access_token"]
+        session = async_get_clientsession(self.hass)
+        auth = _StaticTokenAuth(session, token)
+        client = MyWebLogClient(auth=auth)
+
+        try:
+            me_resp = await client.get_me()
+            me = me_resp.get("data", me_resp) if isinstance(me_resp, dict) else {}
+            objects_resp = await client.get_objects()
+            objects = (
+                objects_resp.get("data", objects_resp.get("Object", []))
+                if isinstance(objects_resp, dict)
+                else []
+            )
+        except Exception as err:
+            _LOGGER.error("Failed to fetch initial profile data: %s", err)
+            if is_auth_error(err):
+                return self.async_abort(reason="invalid_auth")
+            return self.async_abort(reason="cannot_connect")
+
+        user_id = str(me.get("id"))
+        await self.async_set_unique_id(user_id)
+
+        # Handle re-authentication
+        if self.source == config_entries.SOURCE_REAUTH:
+            reauth_entry = self._get_reauth_entry()
+            if reauth_entry:
+                if reauth_entry.unique_id is None:
+                    self.hass.config_entries.async_update_entry(
+                        reauth_entry, unique_id=user_id
+                    )
+                else:
+                    self._abort_if_unique_id_mismatch(reason="account_mismatch")
+                data["airplanes"] = reauth_entry.data.get("airplanes", [])
+                data["user_id"] = me.get("id")
+                data["username"] = me.get("username") or reauth_entry.data.get(
+                    "username"
+                )
+                return self.async_update_reload_and_abort(
+                    reauth_entry, data_updates=data
+                )
+
+        self._abort_if_unique_id_configured()
+
+        airplanes = filter_airplanes(objects)
+        if not airplanes:
+            _LOGGER.warning("No airplanes found for account %s", user_id)
+
+        self._oauth_data = data
+        self._me = me
+        self._airplanes = airplanes
+
+        return await self.async_step_select_airplane()
 
     async def async_step_select_airplane(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle the airplane selection step."""
-        _LOGGER.debug("Starting config flow: step_select_airplane")
+        """Handle airplane selection step."""
         errors = {}
 
         if user_input is not None:
-            # Find all selected airplanes' data
+            selected_regnrs = set(user_input.get("airplanes", []))
             selected_planes = [
-                plane
-                for plane in self._airplanes
-                if plane["regnr"] in user_input["airplanes"]
+                plane for plane in self._airplanes if plane["regnr"] in selected_regnrs
             ]
 
-            # Create a summary title with the number of planes
-            planes_count = len(selected_planes)
-            title = f"MyWeblog ({self._username} - {planes_count} {'plane' if planes_count == 1 else 'planes'})"
+            if not selected_planes:
+                errors["base"] = "no_airplanes_selected"
+            else:
+                planes_count = len(selected_planes)
+                name_info = self._me.get("name")
+                if isinstance(name_info, dict):
+                    full_name = name_info.get("full")
+                else:
+                    full_name = str(name_info or "")
 
-            _LOGGER.info(
-                "Config flow: selected %d airplanes for user %s",
-                planes_count,
-                self._username,
-            )
+                username = (
+                    self._me.get("username")
+                    or full_name
+                    or str(self._me.get("id", "User"))
+                )
+                title = (
+                    f"MyWeblog ({username} - {planes_count} "
+                    f"{'plane' if planes_count == 1 else 'planes'})"
+                )
 
-            # Store the planes data as a list
-            planes_data = [
-                {"id": plane["id"], "regnr": plane["regnr"], "title": plane["title"]}
-                for plane in selected_planes
-            ]
+                _LOGGER.info(
+                    "Config flow: selected %d airplanes for %s",
+                    planes_count,
+                    username,
+                )
 
-            return self.async_create_entry(
-                title=title,
-                data={
-                    "username": self._username,
-                    "password": self._password,
-                    "app_token": self._app_token,
-                    "airplanes": planes_data,
-                },
-            )
+                return self.async_create_entry(
+                    title=title,
+                    data={
+                        **self._oauth_data,
+                        "user_id": self._me.get("id"),
+                        "username": self._me.get("username"),
+                        "airplanes": selected_planes,
+                    },
+                )
 
-        # Create a mapping of registration numbers to plane data
         airplane_titles = {plane["regnr"]: plane["title"] for plane in self._airplanes}
-
         schema = vol.Schema(
             {vol.Required("airplanes"): cv.multi_select(airplane_titles)}
         )
@@ -254,91 +268,62 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Handle options flow initialization."""
-        _LOGGER.debug("Starting options flow")
         return await self.async_step_options(user_input)
 
     async def async_step_options(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Handle options flow for airplane selection."""
-        _LOGGER.debug("Starting options flow: step_options")
         errors = {}
         try:
             entry = self.config_entry
         except (AttributeError, ValueError):
             entry = self._my_config_entry
-        username = entry.data.get("username")
-        password = entry.data.get("password")
+
         current_airplanes = entry.data.get("airplanes", [])
         current_regnrs = {plane["regnr"] for plane in current_airplanes}
 
+        # Try to fetch fresh objects from active client or runtime_data
+        airplanes = current_airplanes
+        try:
+            runtime_data = getattr(entry, "runtime_data", None)
+            if runtime_data and hasattr(runtime_data, "client"):
+                objects_resp = await runtime_data.client.get_objects()
+                objects = objects_resp.get("data", objects_resp.get("Object", []))
+                fresh_airplanes = filter_airplanes(objects)
+                if fresh_airplanes:
+                    airplanes = fresh_airplanes
+        except Exception as err:
+            _LOGGER.warning("Could not refresh airplanes for options: %s", err)
+
         if user_input is not None:
-            try:
-                # Fetch available airplanes from API
-                airplanes, app_token = await validate_credentials(
-                    self.hass, username, password
+            selected_regnrs = set(user_input.get("airplanes", []))
+            selected_planes = [
+                plane for plane in airplanes if plane["regnr"] in selected_regnrs
+            ]
+
+            if not selected_planes:
+                errors["base"] = "no_airplanes_selected"
+            else:
+                planes_count = len(selected_planes)
+                username = entry.data.get("username", "User")
+                title = (
+                    f"MyWeblog ({username} - {planes_count} "
+                    f"{'plane' if planes_count == 1 else 'planes'})"
                 )
 
-                # Find selected airplanes
-                selected_regnrs = set(user_input.get("airplanes", []))
-                selected_planes = [
-                    plane for plane in airplanes if plane["regnr"] in selected_regnrs
-                ]
+                self.hass.config_entries.async_update_entry(
+                    entry,
+                    title=title,
+                    data={
+                        **entry.data,
+                        "airplanes": selected_planes,
+                    },
+                )
+                await self.hass.config_entries.async_reload(entry.entry_id)
+                return self.async_create_entry(title="", data={})
 
-                if not selected_planes:
-                    errors["base"] = "no_airplanes_selected"
-                else:
-                    # Update the config entry
-                    planes_data = [
-                        {
-                            "id": plane["id"],
-                            "regnr": plane["regnr"],
-                            "title": plane["title"],
-                        }
-                        for plane in selected_planes
-                    ]
-
-                    planes_count = len(planes_data)
-                    title = f"MyWeblog ({username} - {planes_count} {'plane' if planes_count == 1 else 'planes'})"
-
-                    _LOGGER.info(
-                        "Options flow: updating to %d airplanes for user %s",
-                        planes_count,
-                        username,
-                    )
-
-                    self.hass.config_entries.async_update_entry(
-                        entry,
-                        title=title,
-                        data={
-                            **entry.data,
-                            "airplanes": planes_data,
-                            "app_token": app_token,
-                        },
-                    )
-                    await self.hass.config_entries.async_reload(entry.entry_id)
-                    return self.async_create_entry(title="", data={})
-            except CannotConnect:
-                _LOGGER.error("Options flow: cannot connect")
-                errors["base"] = "cannot_connect"
-            except InvalidAuth:
-                _LOGGER.error("Options flow: invalid credentials")
-                errors["base"] = "invalid_auth"
-            except Exception:
-                _LOGGER.exception("Options flow: unexpected exception")
-                errors["base"] = "unknown"
-
-        # Fetch available airplanes for the form
-        try:
-            airplanes, _ = await validate_credentials(self.hass, username, password)
-        except Exception as err:
-            _LOGGER.error("Options flow: failed to fetch airplanes: %s", err)
-            # Use current airplanes if we can't fetch new ones
-            airplanes = current_airplanes
-
-        # Create mapping of registration numbers to plane data
         airplane_titles = {plane["regnr"]: plane["title"] for plane in airplanes}
-
         schema = vol.Schema(
             {
                 vol.Required(
@@ -348,7 +333,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         )
 
         return self.async_show_form(
-            step_id="init", data_schema=schema, errors=errors
+            step_id="options", data_schema=schema, errors=errors
         )
 
 

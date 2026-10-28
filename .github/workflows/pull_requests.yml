@@ -1,6 +1,8 @@
 name: Pull requests
 
-on: pull_request
+on:
+  pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: pull-requests-${{ github.ref }}
@@ -12,12 +14,12 @@ jobs:
     runs-on: "ubuntu-latest"
     steps:
       - name: "Clone repo"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: "Set up Python"
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
 
       - name: "Install Python dependencies"
         run: pip install black flake8
@@ -28,16 +30,16 @@ jobs:
           auto_fix: false
           black: true
           flake8: true
-      
+
       - name: "Hassfest"
         uses: "home-assistant/actions/hassfest@master"
-      
+
   validate:
     name: "Validate hacs"
     runs-on: "ubuntu-latest"
     steps:
       - name: "Clone repo"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: "HACS validation"
         uses: hacs/action@main

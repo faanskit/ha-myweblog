@@ -2,36 +2,30 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
-import time
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from pyMyweblog import MyWebLogClient
-
-from homeassistant.components.sensor import (  # type: ignore[import]
+from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry  # type: ignore[import]
-from homeassistant.const import EntityCategory  # type: ignore[import]
-from homeassistant.core import HomeAssistant  # type: ignore[import]
-from homeassistant.helpers import entity_registry as er  # type: ignore[import]
-from homeassistant.helpers.entity import DeviceInfo  # type: ignore[import]
-from homeassistant.helpers.entity_platform import AddEntitiesCallback  # type: ignore[import]
-from homeassistant.helpers.typing import StateType  # type: ignore[import]
-from homeassistant.helpers.update_coordinator import (  # type: ignore[import]
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.typing import StateType
+from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
-    UpdateFailed,
 )
-from homeassistant import config_entries  # type: ignore[import]
 
-from .const import BOOKINGS_UPDATE_INTERVAL, DOMAIN, OBJECTS_UPDATE_INTERVAL
-from .config_flow import is_auth_error
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -159,7 +153,7 @@ class MyWebLogDiagnosticSensor(CoordinatorEntity, SensorEntity):
 
     def __init__(
         self,
-        coordinator: DataUpdateCoordinator,
+        coordinator: DataUpdateCoordinator[Any],
         key: str,
         name: str,
         icon: str,
@@ -172,6 +166,8 @@ class MyWebLogDiagnosticSensor(CoordinatorEntity, SensorEntity):
         self._attr_unique_id = f"myweblog_diagnostic_{key}"
         self._attr_name = name
         self._attr_icon = icon
+        if key == "last_update_objects":
+            self._attr_device_class = SensorDeviceClass.TIMESTAMP
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "diagnostics")},
             name="MyWebLog Diagnostics",
@@ -179,27 +175,19 @@ class MyWebLogDiagnosticSensor(CoordinatorEntity, SensorEntity):
         )
 
     @property
-    def state(self) -> StateType:
-        """Return the state of the diagnostic sensor."""
+    def native_value(self) -> StateType | datetime:
+        """Return the native value of the diagnostic sensor."""
         if self._key == "last_update_objects":
-            # Use manually tracked last_update_success_timestamp
-            if (
-                hasattr(self.coordinator, "_last_update_success_timestamp")
-                and self.coordinator._last_update_success_timestamp is not None  # type: ignore
-            ):
-                # Convert Unix timestamp to ISO format datetime
-                dt = datetime.fromtimestamp(
-                    self.coordinator._last_update_success_timestamp,  # type: ignore
-                    tz=ZoneInfo("UTC"),
-                )
-                return dt.isoformat()
+            ts = getattr(self.coordinator, "_last_update_success_timestamp", None)
+            if ts is not None:
+                return datetime.fromtimestamp(ts, tz=timezone.utc)
             return None
-        elif self._key == "update_interval_objects":
+        if self._key == "update_interval_objects":
             interval = self.coordinator.update_interval
             if interval:
                 return int(interval.total_seconds())
             return None
-        elif self._key == "airplane_count":
+        if self._key == "airplane_count":
             return self._static_value
         return None
 
@@ -210,135 +198,61 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up myWebLog sensors from a config entry."""
-
     ent_reg = er.async_get(hass)
     airplanes = config_entry.data.get("airplanes", [])
-    current_regnrs = {p["regnr"].lower().replace("-", "_") for p in airplanes}
+    current_regnrs = {
+        p["regnr"].lower().replace("-", "_") for p in airplanes if p.get("regnr")
+    }
 
-    # Hitta alla sensorer som tillhör denna integration
+    # Clean up obsolete entities if planes were unselected
     existing_entities = er.async_entries_for_config_entry(
         ent_reg, config_entry.entry_id
     )
 
     for entity in existing_entities:
-        # Ignorera diagnos-sensorer
         if entity.unique_id.startswith("myweblog_diagnostic_"):
             continue
 
-        # Kolla om sensorn tillhör ett plan som inte längre är valt
         is_current = any(
             entity.unique_id.startswith(f"myweblog_{reg}_") for reg in current_regnrs
         )
-
         if not is_current:
-            _LOGGER.info("Rensar bort gammal sensor: %s", entity.entity_id)
-            # DENNA RAD BEHÖVS FÖR ATT RADERA:
+            _LOGGER.info("Removing obsolete MyWebLog sensor: %s", entity.entity_id)
             ent_reg.async_remove(entity.entity_id)
 
-    username = config_entry.data.get("username")
-    password = config_entry.data.get("password")
-    app_token = config_entry.data.get("app_token")
-    airplanes = config_entry.data.get("airplanes", [])
+    # Obtain coordinators from runtime_data if present
+    runtime_data = getattr(config_entry, "runtime_data", None)
+    if runtime_data is not None:
+        objects_coordinator = runtime_data.objects_coordinator
+        bookings_coordinators = runtime_data.bookings_coordinators
+    else:
+        # Fallback for test fixtures that mock config_entry directly without setup_entry
+        from .__init__ import async_setup_entry as init_setup_entry
 
-    if (
-        not isinstance(username, str)
-        or not isinstance(password, str)
-        or not isinstance(app_token, str)
-    ):
-        raise TypeError("Missing or invalid credentials for myWebLog integration")
+        await init_setup_entry(hass, config_entry)  # type: ignore[arg-type]
+        runtime_data = getattr(config_entry, "runtime_data", None)
+        objects_coordinator = runtime_data.objects_coordinator
+        bookings_coordinators = runtime_data.bookings_coordinators
 
-    async def async_update_objects() -> list[dict[str, Any]]:
-        _LOGGER.debug("Fetching objects for username=%s", username)
-        try:
-            async with MyWebLogClient(username, password, app_token) as client:
-                result = await client.getObjects()
-                _LOGGER.debug("Fetched objects: %s", result)
-                return result.get("Object", [])
-        except Exception as e:
-            if is_auth_error(e):
-                _LOGGER.warning(
-                    "Authentication error detected, triggering re-authentication"
-                )
-                hass.async_create_task(
-                    hass.config_entries.flow.async_init(
-                        DOMAIN,
-                        context={
-                            "source": config_entries.SOURCE_REAUTH,
-                            "entry_id": config_entry.entry_id,
-                        },
-                        data=config_entry.data,
-                    )
-                )
-                raise UpdateFailed(
-                    "Authentication failed, please re-authenticate"
-                ) from e
-            raise UpdateFailed(f"Error fetching objects: {e}") from e
-
-    objects_coordinator = DataUpdateCoordinator(
-        hass,
-        _LOGGER,
-        name="myweblog_airplanes_objects",
-        update_method=async_update_objects,
-        update_interval=OBJECTS_UPDATE_INTERVAL,
-    )
-    # Manually track last successful update time
-    objects_coordinator._last_update_success_timestamp = None  # type: ignore
-    await objects_coordinator.async_config_entry_first_refresh()
-    # Record successful initial refresh
-    if objects_coordinator.last_exception is None:
-        objects_coordinator._last_update_success_timestamp = time.time()  # type: ignore
-
-    sensors = []
+    sensors: list[SensorEntity] = []
     for airplane in airplanes:
-        _LOGGER.info("Creating sensor for airplane_id=%s", airplane["id"])
+        plane_id = str(airplane["id"])
+        b_coord = bookings_coordinators.get(plane_id)
+        if b_coord is None:
+            # Fallback if plane ID was int
+            b_coord = objects_coordinator
 
-        async def async_update_bookings(
-            airplane_id: str = airplane["id"],
-        ) -> list[dict[str, Any]]:
-            _LOGGER.debug("Fetching bookings for airplane_id=%s", airplane_id)
-            try:
-                async with MyWebLogClient(username, password, app_token) as client:
-                    result = await client.getBookings(airplane_id)
-                    _LOGGER.debug("Fetched bookings: %s", result)
-                    return result.get("Booking", [])
-            except Exception as e:
-                if is_auth_error(e):
-                    _LOGGER.warning(
-                        "Authentication error detected, triggering re-authentication"
-                    )
-                    hass.async_create_task(
-                        hass.config_entries.flow.async_init(
-                            DOMAIN,
-                            context={
-                                "source": config_entries.SOURCE_REAUTH,
-                                "entry_id": config_entry.entry_id,
-                            },
-                            data=config_entry.data,
-                        )
-                    )
-                    raise UpdateFailed(
-                        "Authentication failed, please re-authenticate"
-                    ) from e
-                raise UpdateFailed(
-                    f"Error fetching bookings for airplane_id={airplane_id}: {e}"
-                ) from e
-
-        bookings_coordinator = DataUpdateCoordinator(
-            hass,
-            _LOGGER,
-            name=f"myweblog_airplane_{airplane['id']}_bookings",
-            update_method=async_update_bookings,
-            update_interval=BOOKINGS_UPDATE_INTERVAL,
-        )
-        await bookings_coordinator.async_config_entry_first_refresh()
-        sensors.extend(
-            MyWebLogAirplaneSensor(
-                objects_coordinator, bookings_coordinator, airplane, description
+        for description in SENSOR_TYPES.values():
+            sensors.append(
+                MyWebLogAirplaneSensor(
+                    objects_coordinator=objects_coordinator,
+                    bookings_coordinator=b_coord,
+                    airplane=airplane,
+                    description=description,
+                )
             )
-            for description in SENSOR_TYPES.values()
-        )
 
-    # Add diagnostic sensors for the integration
+    # Diagnostic sensors
     diagnostic_sensors = [
         MyWebLogDiagnosticSensor(
             objects_coordinator,
@@ -362,14 +276,6 @@ async def async_setup_entry(
     ]
     sensors.extend(diagnostic_sensors)
 
-    def update_last_update_timestamp() -> None:
-        """Update the last update timestamp when coordinator refreshes."""
-        if objects_coordinator.last_exception is None:
-            objects_coordinator._last_update_success_timestamp = time.time()  # type: ignore
-
-    # Listen for coordinator updates and track successful ones
-    objects_coordinator.async_add_listener(update_last_update_timestamp)
-
     async_add_entities(sensors, True)
 
 
@@ -378,20 +284,22 @@ class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
 
     def __init__(
         self,
-        objects_coordinator: DataUpdateCoordinator,
-        bookings_coordinator: DataUpdateCoordinator,
+        objects_coordinator: DataUpdateCoordinator[Any],
+        bookings_coordinator: DataUpdateCoordinator[Any],
         airplane: dict[str, Any],
         description: SensorEntityDescription,
     ) -> None:
         """Initialize the sensor entity."""
-        # Initialize with the objects_coordinator as the main coordinator
         super().__init__(objects_coordinator)
         self.entity_description = description
         self._bookings_coordinator = bookings_coordinator
-        self._airplane_id = airplane["id"]
+        self._airplane_id = str(airplane["id"])
         self._airplane_regnr = airplane["regnr"]
         self._airplane_title = airplane.get("title", airplane["regnr"])
-        self._attr_unique_id = f"myweblog_{self._airplane_regnr.lower().replace('-', '_')}_{description.key}"
+        self._attr_unique_id = (
+            f"myweblog_{self._airplane_regnr.lower().replace('-', '_')}_"
+            f"{description.key}"
+        )
         self._attr_has_entity_name = True
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, self._airplane_regnr)},
@@ -399,28 +307,19 @@ class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
             manufacturer="myWebLog",
             model=self._airplane_title,
         )
-        self._next_booking_obj = None
-        self._attr_should_poll = False  # We use coordinator for updates
-        _LOGGER.debug(
-            "Created sensor: regnr=%s, key=%s, unique_id=%s",
-            self._airplane_regnr,
-            description.key,
-            self._attr_unique_id,
-        )
+        self._next_booking_obj: dict[str, Any] | None = None
+        self._attr_should_poll = False
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
         await super().async_added_to_hass()
-        # Add listener for bookings coordinator updates
         self.async_on_remove(
             self._bookings_coordinator.async_add_listener(self._handle_bookings_update)
         )
-        # Initial update
         self._handle_bookings_update()
 
     def _handle_bookings_update(self) -> None:
         """Handle updated data from the bookings coordinator."""
-        # Force a state update when bookings change
         self.async_write_ha_state()
 
     @property
@@ -433,118 +332,194 @@ class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
         )
 
     def _get_yellow_tags(self, obj: dict[str, Any]) -> int:
+        remarks = obj.get("active_remarks", obj.get("activeRemarks", []))
         return len(
-            [r for r in obj.get("activeRemarks", []) if r.get("remarkCategory") == "1"]
+            [
+                r
+                for r in remarks
+                if str(r.get("category_id") or r.get("remarkCategory")) == "1"
+            ]
         )
 
     def _get_red_tags(self, obj: dict[str, Any]) -> int:
+        remarks = obj.get("active_remarks", obj.get("activeRemarks", []))
         return len(
-            [r for r in obj.get("activeRemarks", []) if r.get("remarkCategory") == "2"]
+            [
+                r
+                for r in remarks
+                if str(r.get("category_id") or r.get("remarkCategory")) == "2"
+            ]
         )
 
     def _get_days_to_go(self, obj: dict[str, Any]) -> int:
-        return obj.get("maintTimeDate", {}).get("daysToGoValue", 0)
+        rem = (obj.get("status") or {}).get("remaining_time") or {}
+        val = rem.get("soft_days")
+        if val is not None:
+            return int(val)
+        return int(obj.get("maintTimeDate", {}).get("daysToGoValue", 0))
 
     def _get_days_to_flight_stop(self, obj: dict[str, Any]) -> int:
-        return obj.get("maintTimeDate", {}).get("flightStop_daysToGoValue", 0)
+        rem = (obj.get("status") or {}).get("remaining_time") or {}
+        val = rem.get("hard_days")
+        if val is not None:
+            return int(val)
+        return int(obj.get("maintTimeDate", {}).get("flightStop_daysToGoValue", 0))
 
     def _get_hours_to_go(self, obj: dict[str, Any]) -> float:
-        return round(float(obj.get("maintTimeDate", {}).get("hoursToGoValue", 0)), 2)
+        rem = (obj.get("status") or {}).get("remaining_time") or {}
+        for key in ("soft_airborne", "soft_tach", "soft_tachometer"):
+            if rem.get(key) is not None:
+                return round(float(rem[key]), 2)
+        val = obj.get("maintTimeDate", {}).get("hoursToGoValue", 0)
+        return round(float(val or 0), 2)
 
     def _get_hours_to_flight_stop(self, obj: dict[str, Any]) -> float:
-        return round(
-            float(obj.get("maintTimeDate", {}).get("flightStop_hoursToGoValue", 0)), 2
-        )
+        rem = (obj.get("status") or {}).get("remaining_time") or {}
+        for key in ("hard_airborne", "hard_tach", "hard_tachometer"):
+            if rem.get(key) is not None:
+                return round(float(rem[key]), 2)
+        val = obj.get("maintTimeDate", {}).get("flightStop_hoursToGoValue", 0)
+        return round(float(val or 0), 2)
 
     def _get_airborne(self, obj: dict[str, Any]) -> float:
+        ts = (obj.get("time_summary") or {}).get("total") or {}
+        if ts.get("airborne") is not None:
+            return round(float(ts["airborne"]), 2)
         try:
-            value = obj["flightData"]["total"]["airborne"]
-        except (KeyError, TypeError):
-            value = obj.get("ftData", {}).get("airborne", 0)
-        try:
-            value = float(value)
-        except (TypeError, ValueError):
-            return obj.get("ftData", {}).get("landings", 0)
-        return round(value, 2)
+            return round(float(obj["flightData"]["total"]["airborne"]), 2)
+        except (KeyError, TypeError, ValueError):
+            val = obj.get("ftData", {}).get("airborne", 0)
+            try:
+                return round(float(val), 2)
+            except (TypeError, ValueError):
+                return 0.0
 
     def _get_block(self, obj: dict[str, Any]) -> float:
+        ts = (obj.get("time_summary") or {}).get("total") or {}
+        if ts.get("block") is not None:
+            return round(float(ts["block"]), 2)
         try:
-            value = obj["flightData"]["total"]["block"]
-        except (KeyError, TypeError):
-            value = obj.get("ftData", {}).get("block", 0)
-        try:
-            value = float(value)
-        except (TypeError, ValueError):
-            return value
-        return round(value, 2)
+            return round(float(obj["flightData"]["total"]["block"]), 2)
+        except (KeyError, TypeError, ValueError):
+            val = obj.get("ftData", {}).get("block", 0)
+            try:
+                return round(float(val), 2)
+            except (TypeError, ValueError):
+                return 0.0
 
     def _get_tachometer(self, obj: dict[str, Any]) -> float:
+        ts = (obj.get("time_summary") or {}).get("total") or {}
+        if ts.get("tach") is not None:
+            return round(float(ts["tach"]), 2)
         try:
-            value = obj["flightData"]["total"]["tachoMeter"]
-        except (KeyError, TypeError):
-            value = obj.get("ftData", {}).get("tachometer", 0)
-        try:
-            value = float(value)
-        except (TypeError, ValueError):
-            return value
-        return round(value, 2)
+            return round(float(obj["flightData"]["total"]["tachoMeter"]), 2)
+        except (KeyError, TypeError, ValueError):
+            val = obj.get("ftData", {}).get("tachometer", 0)
+            try:
+                return round(float(val), 2)
+            except (TypeError, ValueError):
+                return 0.0
 
     def _get_tach_time(self, obj: dict[str, Any]) -> float:
+        ts = (obj.get("time_summary") or {}).get("total") or {}
+        if ts.get("tach") is not None:
+            return round(float(ts["tach"]), 2)
         try:
-            value = obj["flightData"]["total"]["tachtime"]
-        except (KeyError, TypeError):
-            value = obj.get("ftData", {}).get("tachtime", 0)
-        try:
-            value = float(value)
-        except (TypeError, ValueError):
-            return value
-        return round(value, 2)
+            return round(float(obj["flightData"]["total"]["tachtime"]), 2)
+        except (KeyError, TypeError, ValueError):
+            val = obj.get("ftData", {}).get("tachtime", 0)
+            try:
+                return round(float(val), 2)
+            except (TypeError, ValueError):
+                return 0.0
 
     def _get_landings(self, obj: dict[str, Any]) -> int:
+        ts = (obj.get("time_summary") or {}).get("total") or {}
+        if ts.get("landings") is not None:
+            return int(ts["landings"])
         try:
-            return obj["flightData"]["total"]["landings"]
-        except (KeyError, TypeError):
-            return obj.get("ftData", {}).get("landings", 0)
+            return int(obj["flightData"]["total"]["landings"])
+        except (KeyError, TypeError, ValueError):
+            return int(obj.get("ftData", {}).get("landings", 0) or 0)
 
     def _get_model(self, obj: dict[str, Any]) -> str | None:
-        return obj.get("model")
+        model_info = obj.get("model")
+        if isinstance(model_info, dict):
+            return (
+                model_info.get("name")
+                or model_info.get("designator")
+                or obj.get("comment")
+            )
+        return model_info
 
     def _get_club(self, obj: dict[str, Any]) -> str | None:
-        return obj.get("clubname")
+        org = obj.get("organization") or obj.get("club")
+        if isinstance(org, dict):
+            return org.get("name")
+        return obj.get("clubname") or (str(org) if org else None)
 
-    def _get_next_booking(self, obj: dict[str, Any]) -> str | None:
+    def _get_next_booking(self, obj: dict[str, Any]) -> StateType | datetime:
         bookings = self._bookings_coordinator.data or []
         if not bookings:
             self._next_booking_obj = None
             return None
-        now = time.time()
-        future_bookings = [
-            b for b in bookings if b.get("bStart") and b.get("bStart") > now
-        ]
-        next_booking = min(
-            future_bookings,
-            key=lambda b: b.get("bStart", float("inf")),
-            default=None,
-        )
-        self._next_booking_obj = next_booking  # Save for attribute access
-        if not next_booking or not next_booking.get("bStartLTObj"):
-            return None
-        try:
-            lt_obj = next_booking["bStartLTObj"]
-            dt_str = lt_obj.get("date")
-            tz_str = lt_obj.get("timezone")
-            try:
-                dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S.%f")
-            except ValueError:
-                dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
-            dt = dt.replace(tzinfo=ZoneInfo(tz_str))
-            return dt.isoformat()
-        except (KeyError, TypeError, ValueError):
+
+        now = datetime.now(timezone.utc)
+        future_bookings: list[tuple[datetime, dict[str, Any]]] = []
+
+        for b in bookings:
+            start_at_str = b.get("start_at") or b.get("start_time")
+            if start_at_str:
+                try:
+                    clean_iso = start_at_str.replace("Z", "+00:00")
+                    dt = datetime.fromisoformat(clean_iso)
+                    if dt > now and not b.get("is_passed", False):
+                        future_bookings.append((dt, b))
+                except Exception:
+                    pass
+            elif b.get("bStart"):
+                b_start = b.get("bStart")
+                if isinstance(b_start, (int, float)) and b_start > now.timestamp():
+                    dt = datetime.fromtimestamp(b_start, tz=timezone.utc)
+                    future_bookings.append((dt, b))
+
+        if not future_bookings:
+            self._next_booking_obj = None
             return None
 
+        future_bookings.sort(key=lambda x: x[0])
+        next_dt, next_booking = future_bookings[0]
+        self._next_booking_obj = next_booking
+
+        start_local = (
+            next_booking.get("start_local")
+            or next_booking.get("start_time")
+            or next_booking.get("start_at")
+        )
+        if start_local:
+            try:
+                return datetime.fromisoformat(start_local)
+            except Exception:
+                pass
+
+        lt_obj = next_booking.get("bStartLTObj")
+        if lt_obj:
+            try:
+                dt_str = lt_obj.get("date")
+                tz_str = lt_obj.get("timezone", "UTC")
+                try:
+                    dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S.%f")
+                except ValueError:
+                    dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+                return dt.replace(tzinfo=ZoneInfo(tz_str))
+            except Exception:
+                pass
+
+        return next_dt
+
     @property
-    def state(self) -> StateType:
-        """Return the state of the sensor."""
+    def native_value(self) -> StateType | datetime:
+        """Return the native value of the sensor."""
         if not self.available:
             return None
 
@@ -556,7 +531,6 @@ class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
             return None
 
         key = self.entity_description.key
-
         dispatch = {
             "yellow_tags": self._get_yellow_tags,
             "red_tags": self._get_red_tags,
@@ -577,9 +551,6 @@ class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
         if key in dispatch:
             return dispatch[key](obj)
 
-        _LOGGER.warning(
-            "Unknown sensor key: %s for regnr=%s", key, self._airplane_regnr
-        )
         return None
 
     @property
@@ -587,49 +558,95 @@ class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
         """Return extra state attributes for the sensor."""
         attrs = dict(super().extra_state_attributes or {})
         key = self.entity_description.key
-        state = self.state
+        state_val = self.native_value
 
-        # Set icon colors for tag sensors
-        if key == "red_tags" and isinstance(state, int) and state > 0:
+        if key == "red_tags" and isinstance(state_val, int) and state_val > 0:
             attrs["icon_color"] = "red"
-        elif key == "yellow_tags" and isinstance(state, int) and state > 0:
+        elif key == "yellow_tags" and isinstance(state_val, int) and state_val > 0:
             attrs["icon_color"] = "yellow"
 
-        # Add booking information for next_booking sensor
         if key == "next_booking":
-            next_booking_obj = getattr(self, "_next_booking_obj", None)
-            if next_booking_obj:
-                # Add booking owner information
-                fullname = next_booking_obj.get("fullname")
-                student_name = next_booking_obj.get("extra_elev_fullname")
+            b = self._next_booking_obj
+            if b:
+                user_info = b.get("user")
+                if isinstance(user_info, dict):
+                    name_obj = user_info.get("name")
+                    if isinstance(name_obj, dict):
+                        fullname = name_obj.get("full")
+                    else:
+                        fullname = (
+                            name_obj
+                            or user_info.get("full_name")
+                            or user_info.get("username")
+                        )
+                else:
+                    fullname = b.get("fullname") or b.get("calendar_name")
+
+                student_info = b.get("student")
+                if isinstance(student_info, dict):
+                    student_name = student_info.get("name")
+                else:
+                    student_name = b.get("extra_elev_fullname")
 
                 if fullname:
                     attrs["booked_by"] = fullname
+                    attrs["user_name"] = fullname
                 if student_name and student_name.strip() not in ("", " "):
                     attrs["student_name"] = student_name.strip()
 
-                # Calculate booking length
-                b_start = next_booking_obj.get("bStart")
-                b_end = next_booking_obj.get("bEnd")
-                if isinstance(b_start, (int, float)) and isinstance(
-                    b_end, (int, float)
-                ):
-                    total_seconds = b_end - b_start
-                    total_minutes = int(total_seconds / 60)
-                    minutes = total_minutes % 60
-                    total_hours = total_minutes // 60
-                    hours = total_hours % 24
-                    days = total_hours // 24
+                if b.get("id") or b.get("ID"):
+                    attrs["booking_id"] = b.get("id") or b.get("ID")
+                if b.get("comment") is not None:
+                    attrs["comment"] = b.get("comment")
 
-                    # Format the duration string
-                    parts = []
-                    if days > 0:
-                        parts.append(f"{days} day{'s' if days != 1 else ''}")
-                    if hours > 0 or days > 0:  # Show hours if there are days or hours
-                        parts.append(f"{hours} hr{'s' if hours != 1 else ''}")
-                    parts.append(f"{minutes} min")
-
-                    attrs["booking_length"] = " ".join(parts)
+                # Calculate booking duration and local time slot
+                start_iso = (
+                    b.get("start_local") or b.get("start_at") or b.get("start_time")
+                )
+                end_iso = b.get("end_local") or b.get("end_at") or b.get("stop_time")
+                if start_iso and end_iso:
+                    try:
+                        s_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+                        e_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+                        attrs["start_time"] = start_iso
+                        attrs["stop_time"] = end_iso
+                        attrs["time_slot"] = (
+                            f"{s_dt.strftime('%H:%M')} - {e_dt.strftime('%H:%M')}"
+                        )
+                        duration_secs = int((e_dt - s_dt).total_seconds())
+                        total_minutes = duration_secs // 60
+                        minutes = total_minutes % 60
+                        total_hours = total_minutes // 60
+                        hours = total_hours % 24
+                        days = total_hours // 24
+                        parts = []
+                        if days > 0:
+                            parts.append(f"{days} day{'s' if days != 1 else ''}")
+                        if hours > 0 or days > 0:
+                            parts.append(f"{hours} hr{'s' if hours != 1 else ''}")
+                        parts.append(f"{minutes} min")
+                        attrs["booking_length"] = " ".join(parts)
+                    except Exception:
+                        pass
+                else:
+                    b_start = b.get("bStart")
+                    b_end = b.get("bEnd")
+                    if isinstance(b_start, (int, float)) and isinstance(
+                        b_end, (int, float)
+                    ):
+                        duration_secs = int(b_end - b_start)
+                        total_minutes = duration_secs // 60
+                        minutes = total_minutes % 60
+                        total_hours = total_minutes // 60
+                        hours = total_hours % 24
+                        days = total_hours // 24
+                        parts = []
+                        if days > 0:
+                            parts.append(f"{days} day{'s' if days != 1 else ''}")
+                        if hours > 0 or days > 0:
+                            parts.append(f"{hours} hr{'s' if hours != 1 else ''}")
+                        parts.append(f"{minutes} min")
+                        attrs["booking_length"] = " ".join(parts)
 
         return attrs
 
@@ -640,7 +657,8 @@ class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
             (
                 obj
                 for obj in self.coordinator.data
-                if isinstance(obj, dict) and obj.get("ID") == self._airplane_id
+                if isinstance(obj, dict)
+                and str(obj.get("id") or obj.get("ID")) == self._airplane_id
             ),
             None,
         )
