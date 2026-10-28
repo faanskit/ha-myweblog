@@ -1,1130 +1,318 @@
-from unittest.mock import patch, AsyncMock
-from homeassistant.core import HomeAssistant  # type: ignore[import]
+"""Unit tests for MyWeblog sensors."""
+
+from unittest.mock import AsyncMock, patch
+
+from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
 from custom_components.myweblog.const import DOMAIN
-from pytest_homeassistant_custom_component.common import MockConfigEntry  # type: ignore[import]
 
-
-async def test_sensors(hass: HomeAssistant) -> None:
-    """Test MyWeblog sensors."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
+MOCK_OBJECTS_DATA = {
+    "data": [
+        {
+            "id": 5599,
+            "registration": "SE-DUM",
+            "category": {"id": 0, "name": "Aircraft"},
+            "model": {"id": 1, "name": "Piper PA-28"},
+            "club": {"id": 368, "name": "Drönarklubb Sydost"},
+            "active_remarks": [
+                {"id": 1, "category_id": 1, "comment": "Tach bulb flickering"},
+                {"id": 2, "category_id": 1, "comment": "Left step loose"},
+                {"id": 3, "category_id": 2, "comment": "Pitot heat inoperative"},
             ],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                        "model": "Cessna 172",
-                        "clubname": "Test Club",
-                        "activeRemarks": [],
-                        "maintTimeDate": {
-                            "daysToGoValue": 10,
-                            "flightStop_daysToGoValue": 5,
-                            "hoursToGoValue": 20.5,
-                            "flightStop_hoursToGoValue": 15.2,
-                        },
-                        "flightData": {
-                            "total": {
-                                "airborne": 100.1,
-                                "block": 110.2,
-                                "tachoMeter": 120.3,
-                                "tachtime": 130.4,
-                                "landings": 50,
-                            }
-                        },
-                    }
-                ]
-            }
-        )
-        instance.getBookings = AsyncMock(return_value={"Booking": []})
-
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-        # Check sensors
-        state = hass.states.get("sensor.se_abc_airborne")
-        assert state is not None
-        assert state.state == "100.1"
-        assert state.attributes["unit_of_measurement"] == "h"
-
-        state = hass.states.get("sensor.se_abc_model")
-        assert state is not None
-        assert state.state == "Cessna 172"
-
-        state = hass.states.get("sensor.se_abc_red_tags")
-        assert state is not None
-        assert state.state == "0"
-
-        assert await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
-
-
-async def test_get_yellow_tags(hass: HomeAssistant) -> None:
-    """Test _get_yellow_tags method with various remark categories."""
-
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                        "activeRemarks": [
-                            {"remarkCategory": "1"},  # Yellow tag
-                            {"remarkCategory": "1"},  # Yellow tag
-                            {"remarkCategory": "2"},  # Red tag
-                        ],
-                    }
-                ]
-            }
-        )
-        instance.getBookings = AsyncMock(return_value={"Booking": []})
-
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-        state = hass.states.get("sensor.se_abc_yellow_tags")
-        assert state is not None
-        assert state.state == "2"  # Two yellow tags
-        assert await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
-
-
-async def test_get_red_tags(hass: HomeAssistant) -> None:
-    """Test _get_red_tags method with various remark categories."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                        "activeRemarks": [
-                            {"remarkCategory": "1"},  # Yellow tag
-                            {"remarkCategory": "2"},  # Red tag
-                            {"remarkCategory": "2"},  # Red tag
-                            {"remarkCategory": "2"},  # Red tag
-                        ],
-                    }
-                ]
-            }
-        )
-        instance.getBookings = AsyncMock(return_value={"Booking": []})
-
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-        state = hass.states.get("sensor.se_abc_red_tags")
-        assert state is not None
-        assert state.state == "3"  # Three red tags
-        assert await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
-
-
-async def test_get_days_to_go(hass: HomeAssistant) -> None:
-    """Test _get_days_to_go method with valid and invalid data."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                        "maintTimeDate": {
-                            "daysToGoValue": 15,
-                        },
-                    }
-                ]
-            }
-        )
-        instance.getBookings = AsyncMock(return_value={"Booking": []})
-
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-        state = hass.states.get("sensor.se_abc_days_to_go_maintenance")
-        assert state is not None
-        assert state.state == "15"
-        assert await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
-
-
-async def test_get_days_to_flight_stop(hass: HomeAssistant) -> None:
-    """Test _get_days_to_flight_stop method."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                        "maintTimeDate": {
-                            "flightStop_daysToGoValue": 7,
-                        },
-                    }
-                ]
-            }
-        )
-        instance.getBookings = AsyncMock(return_value={"Booking": []})
-
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-        state = hass.states.get("sensor.se_abc_days_to_go_flight_stop")
-        assert state is not None
-        assert state.state == "7"
-        assert await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
-
-
-async def test_get_hours_to_go(hass: HomeAssistant) -> None:
-    """Test _get_hours_to_go method with rounding behavior."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                        "maintTimeDate": {
-                            "hoursToGoValue": 123.456789,
-                        },
-                    }
-                ]
-            }
-        )
-        instance.getBookings = AsyncMock(return_value={"Booking": []})
-
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-        state = hass.states.get("sensor.se_abc_hours_to_go_maintenance")
-        assert state is not None
-        assert state.state == "123.46"  # Rounded to 2 decimal places
-        assert await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
-
-
-async def test_get_hours_to_flight_stop(hass: HomeAssistant) -> None:
-    """Test _get_hours_to_flight_stop method with rounding behavior."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                        "maintTimeDate": {
-                            "flightStop_hoursToGoValue": 45.789,
-                        },
-                    }
-                ]
-            }
-        )
-        instance.getBookings = AsyncMock(return_value={"Booking": []})
-
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-        state = hass.states.get("sensor.se_abc_hours_to_go_flight_stop")
-        assert state is not None
-        assert state.state == "45.79"  # Rounded to 2 decimal places
-        assert await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
-
-
-async def test_get_airborne_fallback(hass: HomeAssistant) -> None:
-    """Test _get_airborne method with fallback to ftData."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        # Test fallback to ftData
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                        "ftData": {
-                            "airborne": 200.5,
-                        },
-                    }
-                ]
-            }
-        )
-        instance.getBookings = AsyncMock(return_value={"Booking": []})
-
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-        state = hass.states.get("sensor.se_abc_airborne")
-        assert state is not None
-        assert state.state == "200.5"
-        assert await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
-
-
-async def test_get_block_fallback(hass: HomeAssistant) -> None:
-    """Test _get_block method with fallback paths."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        # Test fallback to ftData
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                        "ftData": {
-                            "block": 250.75,
-                        },
-                    }
-                ]
-            }
-        )
-        instance.getBookings = AsyncMock(return_value={"Booking": []})
-
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-        state = hass.states.get("sensor.se_abc_block")
-        assert state is not None
-        assert state.state == "250.75"
-        assert await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
-
-
-async def test_get_tachometer_fallback(hass: HomeAssistant) -> None:
-    """Test _get_tachometer method with fallback paths."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                        "ftData": {
-                            "tachometer": 300.25,
-                        },
-                    }
-                ]
-            }
-        )
-        instance.getBookings = AsyncMock(return_value={"Booking": []})
-
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-        state = hass.states.get("sensor.se_abc_tachometer")
-        assert state is not None
-        assert state.state == "300.25"
-        assert await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
-
-
-async def test_get_tach_time_fallback(hass: HomeAssistant) -> None:
-    """Test _get_tach_time method with fallback paths."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                        "ftData": {
-                            "tachtime": 350.5,
-                        },
-                    }
-                ]
-            }
-        )
-        instance.getBookings = AsyncMock(return_value={"Booking": []})
-
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-        state = hass.states.get("sensor.se_abc_tach_time")
-        assert state is not None
-        assert state.state == "350.5"
-        assert await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
-
-
-async def test_get_landings_fallback(hass: HomeAssistant) -> None:
-    """Test _get_landings method with fallback paths."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                        "ftData": {
-                            "landings": 75,
-                        },
-                    }
-                ]
-            }
-        )
-        instance.getBookings = AsyncMock(return_value={"Booking": []})
-
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-        state = hass.states.get("sensor.se_abc_landings")
-        assert state is not None
-        assert state.state == "75"
-        assert await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
-
-
-async def test_get_model(hass: HomeAssistant) -> None:
-    """Test _get_model method with and without model data."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                        "model": "Cessna 172",
-                    }
-                ]
-            }
-        )
-        instance.getBookings = AsyncMock(return_value={"Booking": []})
-
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-        state = hass.states.get("sensor.se_abc_model")
-        assert state is not None
-        assert state.state == "Cessna 172"
-        assert await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
-
-
-async def test_get_club(hass: HomeAssistant) -> None:
-    """Test _get_club method with and without club data."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                        "clubname": "Test Flying Club",
-                    }
-                ]
-            }
-        )
-        instance.getBookings = AsyncMock(return_value={"Booking": []})
-
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-        state = hass.states.get("sensor.se_abc_club")
-        assert state is not None
-        assert state.state == "Test Flying Club"
-        assert await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
-
-
-async def test_get_next_booking(hass: HomeAssistant) -> None:
-    """Test _get_next_booking method with various date formats."""
-    import time
-    from datetime import datetime, timedelta
-
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    # Create a future booking timestamp
-    future_time = time.time() + 3600  # 1 hour from now
-
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                    }
-                ]
-            }
-        )
-        # Test with date format with microseconds
-        future_dt = datetime.now() + timedelta(hours=1)
-        instance.getBookings = AsyncMock(
-            return_value={
-                "Booking": [
-                    {
-                        "bStart": future_time,
-                        "bEnd": future_time + 7200,  # 2 hours later
-                        "fullname": "Test Pilot",
-                        "extra_elev_fullname": "Test Student",
-                        "bStartLTObj": {
-                            "date": future_dt.strftime("%Y-%m-%d %H:%M:%S.%f"),
-                            "timezone": "Europe/Stockholm",
-                        },
-                    }
-                ]
-            }
-        )
-
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-        state = hass.states.get("sensor.se_abc_next_booking")
-        assert state is not None
-        assert state.state is not None
-        assert "booked_by" in state.attributes
-        assert state.attributes["booked_by"] == "Test Pilot"
-        assert "student_name" in state.attributes
-        assert state.attributes["student_name"] == "Test Student"
-        assert "booking_length" in state.attributes
-
-        # Test with date format without microseconds - create new entry
-        entry2 = MockConfigEntry(
-            domain=DOMAIN,
-            data={
-                "username": "test_user",
-                "password": "test_password",
-                "app_token": "fake_token",
-                "airplanes": [
-                    {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-                ],
+            "status": {
+                "remaining_time": {
+                    "soft_days": 10,
+                    "hard_days": 5,
+                    "soft_airborne": 20.5,
+                    "hard_airborne": 15.2,
+                }
             },
-        )
-        entry2.add_to_hass(hass)
-
-        future_dt2 = datetime.now() + timedelta(hours=2)
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                    }
-                ]
-            }
-        )
-        instance.getBookings = AsyncMock(
-            return_value={
-                "Booking": [
-                    {
-                        "bStart": future_time + 3600,
-                        "bEnd": future_time + 10800,
-                        "bStartLTObj": {
-                            "date": future_dt2.strftime("%Y-%m-%d %H:%M:%S"),
-                            "timezone": "Europe/Stockholm",
-                        },
-                    }
-                ]
-            }
-        )
-        await hass.config_entries.async_setup(entry2.entry_id)
-        await hass.async_block_till_done()
-
-        state = hass.states.get("sensor.se_abc_next_booking")
-        assert state is not None
-
-        # Test with no future bookings - create new entry
-        entry3 = MockConfigEntry(
-            domain=DOMAIN,
-            data={
-                "username": "test_user",
-                "password": "test_password",
-                "app_token": "fake_token",
-                "airplanes": [
-                    {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-                ],
+            "time_summary": {
+                "total": {
+                    "airborne": 1004.58,
+                    "block": 1006.92,
+                    "tach": 1006.0,
+                    "landings": 137,
+                }
             },
-        )
-        entry3.add_to_hass(hass)
+        },
+        {
+            "id": 5610,
+            "registration": "SE-JET",
+            "category": {"id": 0, "name": "Aircraft"},
+            "model": {"id": 2, "name": "Cessna 172"},
+            "club": {"id": 368, "name": "Drönarklubb Sydost"},
+            "active_remarks": [],
+            "status": {"remaining_time": {}},
+            "time_summary": {
+                "total": {
+                    "airborne": 8001.0,
+                    "block": 8001.5,
+                    "tach": 8001.3,
+                    "landings": 802,
+                }
+            },
+        },
+    ]
+}
 
-        past_time = time.time() - 3600
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                    }
-                ]
-            }
-        )
-        instance.getBookings = AsyncMock(
-            return_value={
-                "Booking": [
-                    {
-                        "bStart": past_time,
-                        "bEnd": past_time + 3600,
-                    }
-                ]
-            }
-        )
-        await hass.config_entries.async_setup(entry3.entry_id)
-        await hass.async_block_till_done()
-
-        # Cleanup
-        await hass.config_entries.async_unload(entry.entry_id)
-        await hass.config_entries.async_unload(entry2.entry_id)
-        await hass.config_entries.async_unload(entry3.entry_id)
-        await hass.async_block_till_done()
+MOCK_BOOKINGS_DATA = {
+    "data": [
+        {
+            "id": 2149212,
+            "object_id": 5599,
+            "start_at": "2099-10-28T10:00:00Z",
+            "end_at": "2099-10-28T12:00:00Z",
+            "start_local": "2099-10-28T11:00:00+01:00",
+            "end_local": "2099-10-28T13:00:00+01:00",
+            "user": {
+                "id": 66375,
+                "name": {"full": "Marcus Karlsson"},
+            },
+            "comment": "Flight to Visby",
+        }
+    ]
+}
 
 
-async def test_coordinator_auth_error_objects(hass: HomeAssistant) -> None:
-    """Test coordinator error handling for auth errors in objects update."""
-
+async def test_airplane_sensors(hass: HomeAssistant) -> None:
+    """Test all aircraft sensors and attributes for configured airplane."""
     entry = MockConfigEntry(
         domain=DOMAIN,
+        version=2,
+        unique_id="66375",
         data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
+            "auth_implementation": DOMAIN,
+            "token": {"access_token": "valid_at"},
+            "username": "368-12345",
             "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
+                {"id": 5599, "regnr": "SE-DUM", "title": "SE-DUM (Piper PA-28)"}
             ],
         },
     )
     entry.add_to_hass(hass)
 
-    with patch(
-        "custom_components.myweblog.sensor.MyWebLogClient"
-    ) as mock_client, patch(
-        "homeassistant.config_entries.ConfigEntriesFlowManager.async_init"
-    ) as mock_reauth:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        # Simulate auth error
-        instance.getObjects = AsyncMock(side_effect=Exception("Invalid credentials"))
-        instance.getBookings = AsyncMock(return_value={"Booking": []})
+    with patch("custom_components.myweblog.MyWebLogClient") as mock_client:
+        instance = mock_client.return_value
+        instance.get_objects = AsyncMock(return_value=MOCK_OBJECTS_DATA)
+        instance.get_bookings = AsyncMock(return_value=MOCK_BOOKINGS_DATA)
 
-        # Setup should handle the error gracefully
-        # The error triggers re-auth flow and is logged
-        try:
-            await hass.config_entries.async_setup(entry.entry_id)
-            await hass.async_block_till_done()
-        except Exception:
-            # ConfigEntryNotReady may be raised, which is expected
-            pass
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
 
-        # Verify that reauth was triggered
-        assert mock_reauth.called
+        # Check total time sensors
+        airborne = hass.states.get("sensor.se_dum_airborne")
+        assert airborne is not None
+        assert airborne.state == "1004.58"
+        assert airborne.attributes["unit_of_measurement"] == "h"
+        assert airborne.attributes["device_class"] == SensorDeviceClass.DURATION
 
-        # Clean up any tasks
+        block = hass.states.get("sensor.se_dum_block")
+        assert block is not None
+        assert block.state == "1006.92"
+        assert block.attributes["unit_of_measurement"] == "h"
+
+        tachometer = hass.states.get("sensor.se_dum_tachometer")
+        assert tachometer is not None
+        assert tachometer.state == "1006.0"
+        assert tachometer.attributes["unit_of_measurement"] == "h"
+
+        tach_time = hass.states.get("sensor.se_dum_tach_time")
+        assert tach_time is not None
+        assert tach_time.state == "1006.0"
+        assert tach_time.attributes["unit_of_measurement"] == "h"
+
+        landings = hass.states.get("sensor.se_dum_landings")
+        assert landings is not None
+        assert landings.state == "137"
+
+        # Check metadata sensors
+        model = hass.states.get("sensor.se_dum_model")
+        assert model is not None
+        assert model.state == "Piper PA-28"
+
+        club = hass.states.get("sensor.se_dum_club")
+        assert club is not None
+        assert club.state == "Drönarklubb Sydost"
+
+        # Check remark tags
+        yellow = hass.states.get("sensor.se_dum_yellow_tags")
+        assert yellow is not None
+        assert yellow.state == "2"
+
+        red = hass.states.get("sensor.se_dum_red_tags")
+        assert red is not None
+        assert red.state == "1"
+
+        # Check maintenance remaining time sensors
+        days_maint = hass.states.get("sensor.se_dum_days_to_go_maintenance")
+        assert days_maint is not None
+        assert days_maint.state == "10"
+        assert days_maint.attributes["unit_of_measurement"] == "d"
+
+        days_stop = hass.states.get("sensor.se_dum_days_to_go_flight_stop")
+        assert days_stop is not None
+        assert days_stop.state == "5"
+        assert days_stop.attributes["unit_of_measurement"] == "d"
+
+        hours_maint = hass.states.get("sensor.se_dum_hours_to_go_maintenance")
+        assert hours_maint is not None
+        assert hours_maint.state == "20.5"
+        assert hours_maint.attributes["unit_of_measurement"] == "h"
+
+        hours_stop = hass.states.get("sensor.se_dum_hours_to_go_flight_stop")
+        assert hours_stop is not None
+        assert hours_stop.state == "15.2"
+        assert hours_stop.attributes["unit_of_measurement"] == "h"
+
+        # Check next booking sensor
+        next_booking = hass.states.get("sensor.se_dum_next_booking")
+        assert next_booking is not None
+        assert "2099-10-28" in next_booking.state
+        assert next_booking.attributes["user_name"] == "Marcus Karlsson"
+        assert next_booking.attributes["booking_id"] == 2149212
+        assert next_booking.attributes["comment"] == "Flight to Visby"
+        assert next_booking.attributes["time_slot"] == "11:00 - 13:00"
+        assert next_booking.attributes["booking_length"] == "2 hrs 0 min"
+
+        # Check diagnostic sensors
+        diag_airplanes = hass.states.get(
+            "sensor.myweblog_diagnostics_configured_airplanes"
+        )
+        assert diag_airplanes is not None
+        assert diag_airplanes.state == "1"
+
+        diag_interval = hass.states.get(
+            "sensor.myweblog_diagnostics_update_interval_objects"
+        )
+        assert diag_interval is not None
+        assert int(diag_interval.state) > 0
+
+        diag_last_update = hass.states.get(
+            "sensor.myweblog_diagnostics_last_update_objects"
+        )
+        assert diag_last_update is not None
+
+        # Verify device registry
+        ent_reg = er.async_get(hass)
+        entry_reg = ent_reg.async_get("sensor.se_dum_airborne")
+        assert entry_reg is not None
+        assert entry_reg.unique_id == "myweblog_se_dum_airborne"
+
+        assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
 
 
-async def test_coordinator_auth_error_bookings(hass: HomeAssistant) -> None:
-    """Test coordinator error handling for auth errors in bookings update."""
-
+async def test_sensors_multiple_airplanes(hass: HomeAssistant) -> None:
+    """Test setup of multiple airplanes and their respective sensors."""
     entry = MockConfigEntry(
         domain=DOMAIN,
+        version=2,
+        unique_id="66375",
         data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
+            "auth_implementation": DOMAIN,
+            "token": {"access_token": "valid_at"},
             "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
+                {"id": 5599, "regnr": "SE-DUM", "title": "SE-DUM"},
+                {"id": 5610, "regnr": "SE-JET", "title": "SE-JET"},
             ],
         },
     )
     entry.add_to_hass(hass)
 
-    with patch(
-        "custom_components.myweblog.sensor.MyWebLogClient"
-    ) as mock_client, patch(
-        "homeassistant.config_entries.ConfigEntriesFlowManager.async_init"
-    ) as mock_reauth:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                    }
-                ]
-            }
-        )
-        # Simulate auth error in bookings
-        instance.getBookings = AsyncMock(side_effect=Exception("Invalid credentials"))
+    with patch("custom_components.myweblog.MyWebLogClient") as mock_client:
+        instance = mock_client.return_value
+        instance.get_objects = AsyncMock(return_value=MOCK_OBJECTS_DATA)
+        instance.get_bookings = AsyncMock(return_value={"data": []})
 
-        # Setup should handle the error gracefully
-        # The error triggers re-auth flow and is logged
-        try:
-            await hass.config_entries.async_setup(entry.entry_id)
-            await hass.async_block_till_done()
-        except Exception:
-            # ConfigEntryNotReady may be raised, which is expected
-            pass
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
 
-        # Verify that reauth was triggered
-        assert mock_reauth.called
+        # Both airplanes have airborne sensors
+        assert hass.states.get("sensor.se_dum_airborne") is not None
+        assert hass.states.get("sensor.se_dum_airborne").state == "1004.58"
 
-        # Clean up any tasks
+        assert hass.states.get("sensor.se_jet_airborne") is not None
+        assert hass.states.get("sensor.se_jet_airborne").state == "8001.0"
+
+        # Diagnostic airplane count is 2
+        diag_count = hass.states.get("sensor.myweblog_diagnostics_configured_airplanes")
+        assert diag_count is not None
+        assert diag_count.state == "2"
+
+        # When no bookings exist, next_booking state is None / unknown
+        se_jet_booking = hass.states.get("sensor.se_jet_next_booking")
+        assert se_jet_booking is not None
+        assert se_jet_booking.state in ("unknown", "unavailable", "None")
+
+        assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
 
 
-async def test_sensor_state_missing_airplane(hass: HomeAssistant) -> None:
-    """Test sensor state property with missing airplane object."""
+async def test_sensors_legacy_fallback_keys(hass: HomeAssistant) -> None:
+    """Test that legacy dictionary keys (ftData, maintTimeDate) still parse correctly."""
+    legacy_objects = {
+        "Object": [
+            {
+                "ID": "5599",
+                "regnr": "SE-DUM",
+                "model": "Piper PA-28",
+                "clubname": "Drönarklubb Sydost",
+                "activeRemarks": [
+                    {"remarkCategory": "1", "comment": "Yellow remark"},
+                    {"remarkCategory": "2", "comment": "Red remark"},
+                ],
+                "maintTimeDate": {
+                    "daysToGoValue": 14,
+                    "flightStop_daysToGoValue": 7,
+                    "hoursToGoValue": 35.0,
+                    "flightStop_hoursToGoValue": 25.0,
+                },
+                "ftData": {
+                    "airborne": 500.25,
+                    "block": 505.5,
+                    "tachometer": 503.0,
+                    "tachtime": 503.0,
+                    "landings": 80,
+                },
+            }
+        ]
+    }
+
     entry = MockConfigEntry(
         domain=DOMAIN,
+        version=2,
+        unique_id="66375",
         data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
+            "auth_implementation": DOMAIN,
+            "token": {"access_token": "valid_at"},
+            "airplanes": [{"id": 5599, "regnr": "SE-DUM", "title": "SE-DUM"}],
         },
     )
     entry.add_to_hass(hass)
 
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        # Return objects but without the airplane we're looking for
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "2",  # Different ID
-                        "regnr": "SE-DEF",
-                    }
-                ]
-            }
-        )
-        instance.getBookings = AsyncMock(return_value={"Booking": []})
+    with patch("custom_components.myweblog.MyWebLogClient") as mock_client:
+        instance = mock_client.return_value
+        instance.get_objects = AsyncMock(return_value=legacy_objects)
+        instance.get_bookings = AsyncMock(return_value={"Booking": []})
 
-        await hass.config_entries.async_setup(entry.entry_id)
+        assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-        # Sensor should be unavailable or None since airplane not found
-        state = hass.states.get("sensor.se_abc_airborne")
-        assert state is not None
-        # State might be None, unavailable, or unknown
-        assert state.state in (None, "unavailable", "unknown")
+        assert hass.states.get("sensor.se_dum_airborne").state == "500.25"
+        assert hass.states.get("sensor.se_dum_block").state == "505.5"
+        assert hass.states.get("sensor.se_dum_tachometer").state == "503.0"
+        assert hass.states.get("sensor.se_dum_tach_time").state == "503.0"
+        assert hass.states.get("sensor.se_dum_landings").state == "80"
+        assert hass.states.get("sensor.se_dum_yellow_tags").state == "1"
+        assert hass.states.get("sensor.se_dum_red_tags").state == "1"
+        assert hass.states.get("sensor.se_dum_days_to_go_maintenance").state == "14"
+        assert hass.states.get("sensor.se_dum_days_to_go_flight_stop").state == "7"
+        assert hass.states.get("sensor.se_dum_hours_to_go_maintenance").state == "35.0"
+        assert hass.states.get("sensor.se_dum_hours_to_go_flight_stop").state == "25.0"
 
-        await hass.config_entries.async_unload(entry.entry_id)
+        assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
-
-
-async def test_sensor_extra_state_attributes(hass: HomeAssistant) -> None:
-    """Test extra_state_attributes for tag sensors and next_booking."""
-    import time
-    from datetime import datetime, timedelta
-
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    future_time = time.time() + 3600
-
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                        "activeRemarks": [
-                            {"remarkCategory": "1"},  # Yellow
-                            {"remarkCategory": "2"},  # Red
-                        ],
-                    }
-                ]
-            }
-        )
-        future_dt = datetime.now() + timedelta(hours=1)
-        instance.getBookings = AsyncMock(
-            return_value={
-                "Booking": [
-                    {
-                        "bStart": future_time,
-                        "bEnd": future_time + 7200,
-                        "fullname": "Test Pilot",
-                        "extra_elev_fullname": "Test Student",
-                        "bStartLTObj": {
-                            "date": future_dt.strftime("%Y-%m-%d %H:%M:%S.%f"),
-                            "timezone": "Europe/Stockholm",
-                        },
-                    }
-                ]
-            }
-        )
-
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-        # Test yellow tags icon color
-        state = hass.states.get("sensor.se_abc_yellow_tags")
-        assert state is not None
-        assert state.state == "1"
-        assert "icon_color" in state.attributes
-        assert state.attributes["icon_color"] == "yellow"
-
-        # Test red tags icon color
-        state = hass.states.get("sensor.se_abc_red_tags")
-        assert state is not None
-        assert state.state == "1"
-        assert "icon_color" in state.attributes
-        assert state.attributes["icon_color"] == "red"
-
-        # Test next_booking attributes
-        state = hass.states.get("sensor.se_abc_next_booking")
-        assert state is not None
-        assert "booked_by" in state.attributes
-        assert "student_name" in state.attributes
-        assert "booking_length" in state.attributes
-
-        await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
-
-
-async def test_sensor_available_property(hass: HomeAssistant) -> None:
-    """Test sensor available property with various coordinator states."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                    }
-                ]
-            }
-        )
-        instance.getBookings = AsyncMock(return_value={"Booking": []})
-
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-        # Sensor should be available when both coordinators have data
-        state = hass.states.get("sensor.se_abc_airborne")
-        assert state is not None
-        # State might be "0" or "unavailable" depending on data
-        assert state.state is not None
-
-        await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
-
-
-async def test_diagnostic_sensor_state(hass: HomeAssistant) -> None:
-    """Test diagnostic sensor state property."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": "test_user",
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    with patch("custom_components.myweblog.sensor.MyWebLogClient") as mock_client:
-        instance = mock_client.return_value.__aenter__.return_value
-        instance.obtainAppToken = AsyncMock(return_value="fake_token")
-        instance.getObjects = AsyncMock(
-            return_value={
-                "Object": [
-                    {
-                        "ID": "1",
-                        "regnr": "SE-ABC",
-                    }
-                ]
-            }
-        )
-        instance.getBookings = AsyncMock(return_value={"Booking": []})
-
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-        # Test airplane_count diagnostic sensor
-        state = hass.states.get("sensor.myweblog_diagnostics_configured_airplanes")
-        assert state is not None
-        assert state.state == "1"
-
-        # Test update_interval_objects diagnostic sensor
-        state = hass.states.get("sensor.myweblog_diagnostics_update_interval_objects")
-        assert state is not None
-        # Should be a number (update interval in seconds)
-        assert state.state is not None
-
-        await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
-
-
-async def test_setup_entry_missing_credentials(hass: HomeAssistant) -> None:
-    """Test setup_entry with missing credentials raises TypeError."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "username": None,  # Missing username
-            "password": "test_password",
-            "app_token": "fake_token",
-            "airplanes": [
-                {"id": "1", "regnr": "SE-ABC", "title": "SE-ABC (Cessna 172)"}
-            ],
-        },
-    )
-    entry.add_to_hass(hass)
-
-    # The TypeError is caught by Home Assistant, so setup fails gracefully
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    # Verify no sensors were created due to the error
-    # The error is logged but Home Assistant still considers setup successful
-    # We can verify the error path was executed by checking no sensors exist
-    state = hass.states.get("sensor.se_abc_yellow_tags")
-    assert state is None  # No sensors should be created

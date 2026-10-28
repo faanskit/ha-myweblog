@@ -2,12 +2,15 @@
   "config": {
     "step": {
       "user": {
-        "data": {
-          "username": "Username",
-          "password": "Password"
-        },
-        "description": "Please enter your myWebLog credentials.",
+        "description": "Connect to your MyWebLog account.",
         "title": "myWebLog"
+      },
+      "pick_implementation": {
+        "title": "Choose Authentication Method"
+      },
+      "reauth_confirm": {
+        "description": "Your MyWebLog session has expired. Please authenticate again to continue.",
+        "title": "Re-authenticate MyWebLog"
       },
       "select_airplane": {
         "data": {
@@ -15,14 +18,6 @@
         },
         "description": "Select the airplanes you want to monitor. You can select multiple airplanes.",
         "title": "Select Airplane(s) for myWebLog"
-      },
-      "reauth": {
-        "data": {
-          "username": "Username",
-          "password": "Password"
-        },
-        "description": "Your myWebLog credentials are no longer valid. Please enter your credentials again.",
-        "title": "Re-authenticate myWebLog"
       }
     },
     "error": {
@@ -33,7 +28,15 @@
     },
     "abort": {
       "already_configured": "Account is already configured",
-      "reauth_successful": "Re-authentication successful"
+      "already_in_progress": "Configuration flow is already in progress",
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "oauth_error": "Received invalid OAuth data",
+      "oauth_timeout": "Timeout resolving OAuth token",
+      "oauth_unauthorized": "OAuth authorization error while obtaining access token",
+      "oauth_failed": "Error while obtaining access token",
+      "reauth_successful": "Re-authentication successful",
+      "account_mismatch": "Re-authenticated account does not match this configuration entry"
     }
   },
   "options": {
@@ -44,12 +47,20 @@
         },
         "description": "Modify which airplanes you want to monitor. You can add or remove airplanes from your selection.",
         "title": "Configure myWebLog Airplanes"
+      },
+      "options": {
+        "data": {
+          "airplanes": "Select Airplanes"
+        },
+        "description": "Modify which airplanes you want to monitor. You can add or remove airplanes from your selection.",
+        "title": "Configure myWebLog Airplanes"
       }
     },
     "error": {
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Invalid authentication",
-      "unknown": "Unexpected error"
+      "unknown": "Unexpected error",
+      "no_airplanes_selected": "Please select at least one airplane"
     }
   },
   "entity": {

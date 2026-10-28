@@ -2,12 +2,15 @@
   "config": {
     "step": {
       "user": {
-        "data": {
-          "username": "Användarnamn",
-          "password": "Lösenord"
-        },
-        "description": "Ange dina inloggningsuppgifter för myWebLog.",
+        "description": "Anslut till ditt MyWebLog-konto.",
         "title": "myWebLog"
+      },
+      "pick_implementation": {
+        "title": "Välj autentiseringsmetod"
+      },
+      "reauth_confirm": {
+        "description": "Din MyWebLog-session har löpt ut. Vänligen autentisera igen för att fortsätta.",
+        "title": "Återautentisera MyWebLog"
       },
       "select_airplane": {
         "data": {
@@ -15,14 +18,6 @@
         },
         "description": "Välj flygplanen du vill övervaka. Du kan välja flera flygplan.",
         "title": "Välj Flygplan för myWebLog"
-      },
-      "reauth": {
-        "data": {
-          "username": "Användarnamn",
-          "password": "Lösenord"
-        },
-        "description": "Dina myWebLog-inloggningsuppgifter är inte längre giltiga. Ange dina inloggningsuppgifter igen.",
-        "title": "Återautentisera myWebLog"
       }
     },
     "error": {
@@ -33,7 +28,15 @@
     },
     "abort": {
       "already_configured": "Kontot är redan konfigurerat",
-      "reauth_successful": "Återautentisering lyckades"
+      "already_in_progress": "Konfigurationsflödet pågår redan",
+      "cannot_connect": "Det gick inte att ansluta",
+      "invalid_auth": "Ogiltiga inloggningsuppgifter",
+      "oauth_error": "Mottog ogiltiga OAuth-data",
+      "oauth_timeout": "Tidsgränsen överskreds vid hämtning av OAuth-token",
+      "oauth_unauthorized": "OAuth-auktoriseringsfel vid hämtning av åtkomsttoken",
+      "oauth_failed": "Fel vid hämtning av åtkomsttoken",
+      "reauth_successful": "Återautentisering lyckades",
+      "account_mismatch": "Det återautentiserade kontot matchar inte denna integration"
     }
   },
   "options": {
@@ -44,17 +47,25 @@
         },
         "description": "Ändra vilka flygplan du vill övervaka. Du kan lägga till eller ta bort flygplan från ditt val.",
         "title": "Konfigurera myWebLog Flygplan"
+      },
+      "options": {
+        "data": {
+          "airplanes": "Välj Flygplan"
+        },
+        "description": "Ändra vilka flygplan du vill övervaka. Du kan lägga till eller ta bort flygplan från ditt val.",
+        "title": "Konfigurera myWebLog Flygplan"
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect",
-      "invalid_auth": "Invalid authentication",
-      "unknown": "Unexpected error"
+      "cannot_connect": "Det gick inte att ansluta",
+      "invalid_auth": "Ogiltig autentisering",
+      "unknown": "Oväntat fel",
+      "no_airplanes_selected": "Välj minst ett flygplan"
     }
   },
   "entity": {
     "sensor": {
-      "next_booking": { "name": "Nästa Bokning"},
+      "next_booking": { "name": "Nästa Bokning" },
       "yellow_tags": { "name": "Gul Anmärkning" },
       "red_tags": { "name": "Röd Anmärkning" },
       "days_to_go": { "name": "Dagar till underhåll" },

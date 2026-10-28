@@ -3,14 +3,14 @@
   "name": "myWebLog",
   "codeowners": ["@faanskit"],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": ["application_credentials"],
   "documentation": "https://github.com/faanskit/ha-myweblog#readme",
   "homekit": {},
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/faanskit/ha-myweblog/issues",
   "quality_scale": "gold",
-  "requirements": ["pyMyweblog>=0.6.0"],
+  "requirements": ["pyMyweblog>=1.0.0"],
   "ssdp": [],
-  "version": "0.2.0",
+  "version": "1.0.0",
   "zeroconf": []
 }

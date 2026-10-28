@@ -42,26 +42,9 @@ cd /config
 mkdir -p github_repos
 ```
 #### 3. Clone the repository into that folder:
-When the repo is public, run:
-
 ```bash
 git clone https://github.com/faanskit/ha-myweblog.git
 ```
-During the beta phase, and the repo is private, use your GitHub username and a [personal access token (PAT)](https://github.com/settings/tokens) like this:
-
-```bash
-git clone https://<your-username>:<your-token>@github.com/faanskit/ha-myweblog.git
-```
-Example:
-
-```bash
-git clone https://mygithubuser:ghp_xxXyYzZzz123TOKENHERE@github.com/faanskit/ha-myweblog.git
-```
-
-🔐 Create your token [here](https://github.com/settings/tokens).
-
-✅ Make sure it has the repo scope if accessing a private repository.
-
 
 #### 4. Create a symlink from the `custom_components` directory to the repository:
 ```bash
@@ -74,8 +57,45 @@ This will link the myweblog integration into Home Assistant as if it were instal
 #### 6. Add the "myWebLog" integration via the Home Assistant UI (Configuration → Devices & Services → Add Integration).
 
 ## Configuration
-- Enter your myWebLog username and password during setup.
-- Select one or more airplanes to monitor.
+
+### Migration from v0.x to v1.0.0 (OAuth 2.1)
+
+With `v1.0.0`, myWebLog transitions from legacy username/password authentication (Mobile API v3/v4) to modern OAuth 2.1 with PKCE (Mobile API v5).
+
+Existing users upgrading from v0.x will experience a seamless migration:
+
+1. **Automatic Schema Migration:**
+   When Home Assistant boots with the updated integration, existing config entries are automatically migrated to version 2. Legacy passwords and stored app tokens are securely purged from Home Assistant storage.
+2. **Re-authentication Prompt:**
+   Because API v5 requires OAuth 2.1 credentials, Home Assistant will prompt for re-authentication with an alert on the myWebLog integration card under **Settings → Devices & Services**.
+3. **One-Click Re-authentication:**
+   - Click **Reconfigure** / **Re-authenticate** on the myWebLog card.
+   - Confirm the prompt to open the secure myWebLog authorization page.
+   - Log in with your myWebLog account credentials in your browser and authorize Home Assistant.
+   - You are redirected back to Home Assistant automatically.
+4. **Zero Configuration Lost:**
+   - All previously selected airplanes are automatically preserved.
+   - All entity IDs (sensor.<regnr>_*), unique IDs, historical data/statistics, and Lovelace dashboards remain 100% intact and continue updating immediately without any manual entity renaming.
+
+### OAuth 2.1 Authentication (New Installations)
+The integration uses standard Home Assistant OAuth 2.1 with PKCE.
+
+1. Go to **Settings → Devices & Services → Add Integration**.
+2. Search for and select **myWebLog**.
+3. You will be redirected to the secure MyWebLog login page (`myweblog.se`).
+4. Log in and authorize Home Assistant.
+5. You are redirected back to Home Assistant and prompted to choose which airplanes to monitor.
+6. Click **Submit** to finalize the setup.
+
+> **Credentials & Development:**
+> - By default, the integration connects using the pre-configured MyWebLog client ID (15) as a public client (no secret required, secured via PKCE).
+> - If you operate a dedicated client ID / secret, you can optionally configure it via Home Assistant's **Application Credentials** (Settings → Devices & Services → ⋮ Menu → Application Credentials) or environment variables (MYWEBLOG_CLIENT_ID, MYWEBLOG_CLIENT_SECRET).
+
+### Managing Monitored Airplanes (Options Flow)
+You can modify your monitored airplanes at any time without reinstalling:
+1. In Home Assistant, navigate to **Settings → Devices & Services → myWebLog**.
+2. Click **Configure**.
+3. Select or deselect airplanes and save. Entities for removed airplanes are automatically cleaned up from the registry.
 
 ## Sensors
 For each selected airplane, **multiple sensors** are created—one for each metric:
@@ -240,17 +260,17 @@ See [LICENSE](LICENSE).
 To run the test suite, you need to install the development requirements first. It is recommended to use a virtual environment.
 
 1. Install testing dependencies:
-   ```bash
+```bash
    pip install pytest-homeassistant-custom-component pytest-cov
    ```
 
 2. Run the tests using `pytest`:
-   ```bash
+```bash
    pytest
    ```
 
    Or run with verbose output:
-   ```bash
+```bash
    pytest -v
    ```
 
@@ -265,12 +285,12 @@ $env:PYTHONPATH = "$PWD"; pytest
 To run the test suite with coverage reporting:
 
 1. Install coverage dependencies (if not already installed):
-   ```bash
+```bash
    pip install pytest-cov
    ```
 
 2. Run tests with coverage:
-   ```bash
+```bash
    pytest --cov=custom_components/myweblog --cov-report=term-missing
    ```
 
@@ -279,14 +299,14 @@ To run the test suite with coverage reporting:
    - Missing line numbers for uncovered code
 
 3. Generate HTML coverage report:
-   ```bash
+```bash
    pytest --cov=custom_components/myweblog --cov-report=html
    ```
 
    This creates an `htmlcov` directory with an interactive HTML report. Open `htmlcov/index.html` in your browser to view detailed coverage information.
 
 4. Generate both terminal and HTML reports:
-   ```bash
+```bash
    pytest --cov=custom_components/myweblog --cov-report=term-missing --cov-report=html
    ```
 
@@ -312,11 +332,11 @@ The integration is a GOLD level integration. This means contributors must ensure
 ### 2. Contribute with Code Style
 When contributing:
 - Format your code using **Black**:
-  ```bash
+```bash
   black .
   ``` 
 - Check your code style using Flake8:
-  ```bash
+```bash
   flake8
   ```
 - Follow [Home Assistant's Python Style Guide](https://developers.home-assistant.io/docs/development/python_style_guide/) for consistency. This includes naming conventions, async/await usage, docstrings, and structure.
@@ -324,7 +344,7 @@ When contributing:
 ### 3. Follow Git Flow for Development
 If you're developing features or fixes:
 - Create a separate branch for each feature or bugfix:
-  ```bash
+```bash
   git checkout -b feature/new-feature
   git checkout -b fix/something-broken
   ```

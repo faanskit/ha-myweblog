@@ -1,9 +1,14 @@
 """Constants for the MyWeblog integration."""
 
+from __future__ import annotations
+
 from datetime import timedelta
 
-APP_SECRET = "**--hidden--**"
 DOMAIN = "myweblog"
+
+OAUTH2_AUTHORIZE = "https://api.myweblog.se/mobile/v5/oauth/authorize"
+OAUTH2_TOKEN = "https://api.myweblog.se/mobile/v5/oauth/token"
+DEFAULT_CLIENT_ID = "15"
 
 DEFAULT_SCAN_INTERVAL = 300  # 5 minutes
 
