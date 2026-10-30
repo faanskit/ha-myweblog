@@ -34,7 +34,8 @@ MOCK_OBJECTS_DATA = {
                 "total": {
                     "airborne": 1004.58,
                     "block": 1006.92,
-                    "tach": 1006.0,
+                    "tachometer": 7054.1,
+                    "tach": 4256.6,
                     "landings": 137,
                 }
             },
@@ -51,6 +52,7 @@ MOCK_OBJECTS_DATA = {
                 "total": {
                     "airborne": 8001.0,
                     "block": 8001.5,
+                    "tachometer": 8500.0,
                     "tach": 8001.3,
                     "landings": 802,
                 }
@@ -115,12 +117,14 @@ async def test_airplane_sensors(hass: HomeAssistant) -> None:
         assert block.state == "1006.92"
         assert block.attributes["unit_of_measurement"] == "h"
 
-        # Tachometer sensor was removed in favor of tach_time
-        assert hass.states.get("sensor.se_dum_tachometer") is None
+        tachometer = hass.states.get("sensor.se_dum_tachometer")
+        assert tachometer is not None
+        assert tachometer.state == "7054.1"
+        assert tachometer.attributes["unit_of_measurement"] == "h"
 
         tach_time = hass.states.get("sensor.se_dum_tach_time")
         assert tach_time is not None
-        assert tach_time.state == "1006.0"
+        assert tach_time.state == "4256.6"
         assert tach_time.attributes["unit_of_measurement"] == "h"
 
         landings = hass.states.get("sensor.se_dum_landings")
@@ -272,7 +276,7 @@ async def test_sensors_legacy_fallback_keys(hass: HomeAssistant) -> None:
                 "ftData": {
                     "airborne": 500.25,
                     "block": 505.5,
-                    "tachometer": 503.0,
+                    "tachometer": 508.5,
                     "tachtime": 503.0,
                     "landings": 80,
                 },
@@ -302,6 +306,7 @@ async def test_sensors_legacy_fallback_keys(hass: HomeAssistant) -> None:
 
         assert hass.states.get("sensor.se_dum_airborne").state == "500.25"
         assert hass.states.get("sensor.se_dum_block").state == "505.5"
+        assert hass.states.get("sensor.se_dum_tachometer").state == "508.5"
         assert hass.states.get("sensor.se_dum_tach_time").state == "503.0"
         assert hass.states.get("sensor.se_dum_landings").state == "80"
         assert hass.states.get("sensor.se_dum_yellow_tags").state == "1"
@@ -315,8 +320,8 @@ async def test_sensors_legacy_fallback_keys(hass: HomeAssistant) -> None:
         await hass.async_block_till_done()
 
 
-async def test_obsolete_tachometer_cleaned_up(hass: HomeAssistant) -> None:
-    """Test that existing obsolete tachometer sensors are removed on setup."""
+async def test_obsolete_sensors_cleaned_up(hass: HomeAssistant) -> None:
+    """Test that obsolete or unselected sensors are removed on setup."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         version=2,
@@ -335,7 +340,7 @@ async def test_obsolete_tachometer_cleaned_up(hass: HomeAssistant) -> None:
     obsolete_entity = ent_reg.async_get_or_create(
         domain="sensor",
         platform=DOMAIN,
-        unique_id="myweblog_se_dum_tachometer",
+        unique_id="myweblog_se_dum_obsolete_metric",
         config_entry=entry,
     )
     assert ent_reg.async_get(obsolete_entity.entity_id) is not None
@@ -351,7 +356,8 @@ async def test_obsolete_tachometer_cleaned_up(hass: HomeAssistant) -> None:
         # Obsolete entity should be cleaned up from registry
         assert ent_reg.async_get(obsolete_entity.entity_id) is None
 
-        # tach_time should exist
+        # Both tachometer and tach_time should exist
+        assert hass.states.get("sensor.se_dum_tachometer") is not None
         assert hass.states.get("sensor.se_dum_tach_time") is not None
 
         assert await hass.config_entries.async_unload(entry.entry_id)
