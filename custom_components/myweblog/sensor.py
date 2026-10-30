@@ -410,6 +410,22 @@ class MyWebLogAirplaneSensor(CoordinatorEntity, SensorEntity):
                 return 0.0
 
     def _get_tachometer(self, obj: dict[str, Any]) -> float:
+        latest_flight = obj.get("latest_flight") or {}
+        arrival = latest_flight.get("arrival") or {}
+        departure = latest_flight.get("departure") or {}
+        tach_val = (
+            arrival.get("tachometer")
+            if arrival.get("tachometer") is not None
+            else departure.get("tachometer")
+        )
+        if tach_val is None:
+            tach_val = latest_flight.get("tachometer")
+        if tach_val is not None:
+            try:
+                return round(float(tach_val), 2)
+            except (TypeError, ValueError):
+                pass
+
         ts = (obj.get("time_summary") or {}).get("total") or {}
         for key in ("tachometer", "tachoMeter", "tach_meter", "meter"):
             if ts.get(key) is not None:
