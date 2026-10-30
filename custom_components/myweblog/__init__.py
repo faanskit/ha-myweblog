@@ -73,6 +73,72 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
     return True
 
 
+async def _async_fetch_airplane_flightlog(
+    client: MyWebLogClient,
+    plane_id: Any,
+) -> dict[str, Any] | None:
+    """Fetch latest flight log for an airplane."""
+    try:
+        fl_res = await client.get_flight_logs(object_id=plane_id, order="desc", limit=1)
+        fl_list = fl_res.get("data", fl_res.get("FlightLog", []))
+        if fl_list and isinstance(fl_list, list):
+            return fl_list[0]
+    except MyWebLogAuthError:
+        raise
+    except aiohttp.ClientResponseError as err:
+        if err.status in (400, 401):
+            raise ConfigEntryAuthFailed(
+                "Authentication expired, please re-authenticate"
+            ) from err
+        _LOGGER.warning(
+            "HTTP error fetching latest flight log for airplane %s: %s",
+            plane_id,
+            err,
+        )
+    except Exception as fl_err:
+        _LOGGER.warning(
+            "Could not fetch latest flight log for airplane %s: %s",
+            plane_id,
+            fl_err,
+        )
+    return None
+
+
+def _create_bookings_update_method(
+    client: MyWebLogClient,
+    p_id: str,
+) -> Any:
+    """Create update method for bookings coordinator."""
+
+    async def async_update_bookings() -> list[dict[str, Any]]:
+        _LOGGER.debug("Fetching bookings for airplane %s", p_id)
+        try:
+            res = await client.get_bookings(object_id=p_id)
+            data = res.get("data", res.get("Booking", []))
+            return data if isinstance(data, list) else []
+        except MyWebLogAuthError as err:
+            raise ConfigEntryAuthFailed(
+                "Authentication expired, please re-authenticate"
+            ) from err
+        except aiohttp.ClientResponseError as err:
+            if err.status in (400, 401):
+                raise ConfigEntryAuthFailed(
+                    "Authentication expired, please re-authenticate"
+                ) from err
+            raise UpdateFailed(
+                f"HTTP error fetching bookings for {p_id}: {err}"
+            ) from err
+        except (
+            MyWebLogMaintenanceError,
+            MyWebLogRateLimitError,
+            aiohttp.ClientError,
+            MyWebLogError,
+        ) as err:
+            raise UpdateFailed(f"Error fetching bookings for {p_id}: {err}") from err
+
+    return async_update_bookings
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: MyWebLogConfigEntry) -> bool:
     """Set up MyWeblog from a config entry."""
     await async_register_default_implementation(hass)
@@ -102,7 +168,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyWebLogConfigEntry) -> 
         try:
             res = await client.get_objects()
             data = res.get("data", res.get("Object", []))
-            return data if isinstance(data, list) else []
+            objects_list = data if isinstance(data, list) else []
+
+            # Fetch latest flight log for each monitored airplane to get current meter reading (tachometer)
+            airplanes = entry.data.get("airplanes", [])
+            for plane in airplanes:
+                p_id = plane.get("id")
+                if not p_id:
+                    continue
+                latest_fl = await _async_fetch_airplane_flightlog(client, p_id)
+                if latest_fl:
+                    for obj in objects_list:
+                        if str(obj.get("id") or obj.get("ID")) == str(p_id):
+                            obj["latest_flight"] = latest_fl
+                            break
+
+            return objects_list
         except MyWebLogAuthError as err:
             raise ConfigEntryAuthFailed(
                 "Authentication expired, please re-authenticate"
@@ -146,41 +227,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyWebLogConfigEntry) -> 
 
     for airplane in airplanes:
         plane_id = str(airplane["id"])
-
-        async def make_update_bookings(
-            p_id: str,
-        ) -> Any:
-            async def async_update_bookings() -> list[dict[str, Any]]:
-                _LOGGER.debug("Fetching bookings for airplane %s", p_id)
-                try:
-                    res = await client.get_bookings(object_id=p_id)
-                    data = res.get("data", res.get("Booking", []))
-                    return data if isinstance(data, list) else []
-                except MyWebLogAuthError as err:
-                    raise ConfigEntryAuthFailed(
-                        "Authentication expired, please re-authenticate"
-                    ) from err
-                except aiohttp.ClientResponseError as err:
-                    if err.status in (400, 401):
-                        raise ConfigEntryAuthFailed(
-                            "Authentication expired, please re-authenticate"
-                        ) from err
-                    raise UpdateFailed(
-                        f"HTTP error fetching bookings for {p_id}: {err}"
-                    ) from err
-                except (
-                    MyWebLogMaintenanceError,
-                    MyWebLogRateLimitError,
-                    aiohttp.ClientError,
-                    MyWebLogError,
-                ) as err:
-                    raise UpdateFailed(
-                        f"Error fetching bookings for {p_id}: {err}"
-                    ) from err
-
-            return async_update_bookings
-
-        update_method = await make_update_bookings(plane_id)
+        update_method = _create_bookings_update_method(client, plane_id)
         b_coord = DataUpdateCoordinator[list[dict[str, Any]]](
             hass,
             _LOGGER,

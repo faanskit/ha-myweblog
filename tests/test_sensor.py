@@ -34,7 +34,6 @@ MOCK_OBJECTS_DATA = {
                 "total": {
                     "airborne": 1004.58,
                     "block": 1006.92,
-                    "tachometer": 7054.1,
                     "tach": 4256.6,
                     "landings": 137,
                 }
@@ -101,6 +100,9 @@ async def test_airplane_sensors(hass: HomeAssistant) -> None:
         instance = mock_client.return_value
         instance.get_objects = AsyncMock(return_value=MOCK_OBJECTS_DATA)
         instance.get_bookings = AsyncMock(return_value=MOCK_BOOKINGS_DATA)
+        instance.get_flight_logs = AsyncMock(
+            return_value={"data": [{"arrival": {"tachometer": 7054.1}}]}
+        )
 
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
@@ -359,6 +361,43 @@ async def test_obsolete_sensors_cleaned_up(hass: HomeAssistant) -> None:
         # Both tachometer and tach_time should exist
         assert hass.states.get("sensor.se_dum_tachometer") is not None
         assert hass.states.get("sensor.se_dum_tach_time") is not None
+
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+
+async def test_airplane_sensors_flightlog_departure_fallback(
+    hass: HomeAssistant,
+) -> None:
+    """Test tachometer falls back to departure when arrival is None."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=2,
+        unique_id="66375",
+        data={
+            "auth_implementation": DOMAIN,
+            "token": {"access_token": "valid_at"},
+            "airplanes": [
+                {"id": 5599, "regnr": "SE-DUM", "title": "SE-DUM (Piper PA-28)"}
+            ],
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.myweblog.MyWebLogClient") as mock_client:
+        instance = mock_client.return_value
+        instance.get_objects = AsyncMock(return_value=MOCK_OBJECTS_DATA)
+        instance.get_bookings = AsyncMock(return_value={"data": []})
+        instance.get_flight_logs = AsyncMock(
+            return_value={"data": [{"departure": {"tachometer": 7053.3}}]}
+        )
+
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+        tachometer = hass.states.get("sensor.se_dum_tachometer")
+        assert tachometer is not None
+        assert tachometer.state == "7053.3"
 
         assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
