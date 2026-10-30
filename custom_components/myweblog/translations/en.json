@@ -74,6 +74,7 @@
       "hours_to_flight_stop": { "name": "Hours to Go (Flight Stop)" },
       "airborne": { "name": "Airborne" },
       "block": { "name": "Block" },
+      "tachometer": { "name": "Tachometer" },
       "tach_time": { "name": "Tach Time" },
       "landings": { "name": "Landings" },
       "model": { "name": "Model" },

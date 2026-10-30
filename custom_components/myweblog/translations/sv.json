@@ -74,7 +74,8 @@
       "hours_to_flight_stop": { "name": "Timmar till flygstopp" },
       "airborne": { "name": "Flygtid" },
       "block": { "name": "Blocktid" },
-      "tach_time": { "name": "Tachotid" },
+      "tachometer": { "name": "Mätarställning (tach)" },
+      "tach_time": { "name": "Total gångtid (tach)" },
       "landings": { "name": "Landningar" },
       "model": { "name": "Modell" },
       "club": { "name": "Flygklubb" }
