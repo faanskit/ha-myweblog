@@ -1,5 +1,6 @@
 """Unit tests for MyWeblog integration lifecycle and setup."""
 
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from homeassistant.config_entries import ConfigEntryState
@@ -204,3 +205,152 @@ async def test_entity_cleanup_on_reload(hass: HomeAssistant) -> None:
 
         await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
+
+
+async def test_auth_401_forces_token_refresh_and_retries(
+    hass: HomeAssistant,
+) -> None:
+    """Test that a 401 response forces an OAuth2 token refresh and retries once."""
+    import time
+    from unittest.mock import MagicMock
+    from custom_components.myweblog.api import AsyncConfigEntryAuth
+    from pyMyweblog.auth import AbstractMyWebLogAuth
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=2,
+        data={
+            "auth_implementation": DOMAIN,
+            "token": {
+                "access_token": "stale_token",
+                "refresh_token": "valid_rt",
+                "expires_in": 3600,
+                "expires_at": time.time() + 1800,
+            },
+        },
+    )
+    entry.add_to_hass(hass)
+
+    oauth_session = MagicMock()
+    oauth_session.hass = hass
+    oauth_session.config_entry = entry
+    type(oauth_session).token = property(lambda self: entry.data["token"])
+
+    refresh_calls = 0
+
+    async def mock_ensure_valid() -> None:
+        nonlocal refresh_calls
+        if entry.data["token"].get("expires_at", 0) == 0:
+            refresh_calls += 1
+            hass.config_entries.async_update_entry(
+                entry,
+                data={
+                    **entry.data,
+                    "token": {
+                        "access_token": "fresh_token",
+                        "refresh_token": "fresh_rt",
+                        "expires_in": 3600,
+                        "expires_at": time.time() + 3600,
+                    },
+                },
+            )
+
+    oauth_session.async_ensure_token_valid = AsyncMock(side_effect=mock_ensure_valid)
+
+    auth = AsyncConfigEntryAuth(MagicMock(), oauth_session)
+
+    seen_tokens: list[str] = []
+
+    async def mock_super_request(
+        self_obj: Any, method: str, path: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        tok = await self_obj.async_get_access_token()
+        seen_tokens.append(tok)
+        if tok == "stale_token":
+            raise MyWebLogAuthError("HTTP 401 Unauthorized", status=401)
+        return {"data": [{"id": 335}]}
+
+    with patch.object(AbstractMyWebLogAuth, "request", new=mock_super_request):
+        res = await auth.request("GET", "/bookings", headers={"X-Custom": "1"})
+
+    assert res == {"data": [{"id": 335}]}
+    assert refresh_calls == 1
+    assert seen_tokens == ["stale_token", "fresh_token"]
+    assert entry.data["token"]["access_token"] == "fresh_token"
+
+
+async def test_auth_401_concurrent_requests_refresh_only_once(
+    hass: HomeAssistant,
+) -> None:
+    """Test that concurrent 401 responses only trigger a single token refresh."""
+    import asyncio
+    import time
+    from unittest.mock import MagicMock
+    from custom_components.myweblog.api import AsyncConfigEntryAuth
+    from pyMyweblog.auth import AbstractMyWebLogAuth
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=2,
+        data={
+            "auth_implementation": DOMAIN,
+            "token": {
+                "access_token": "stale_token",
+                "refresh_token": "valid_rt",
+                "expires_in": 3600,
+                "expires_at": time.time() + 1800,
+            },
+        },
+    )
+    entry.add_to_hass(hass)
+
+    oauth_session = MagicMock()
+    oauth_session.hass = hass
+    oauth_session.config_entry = entry
+    type(oauth_session).token = property(lambda self: entry.data["token"])
+
+    refresh_calls = 0
+
+    async def mock_ensure_valid() -> None:
+        nonlocal refresh_calls
+        if entry.data["token"].get("expires_at", 0) == 0:
+            refresh_calls += 1
+            await asyncio.sleep(0.01)
+            hass.config_entries.async_update_entry(
+                entry,
+                data={
+                    **entry.data,
+                    "token": {
+                        "access_token": f"fresh_token_{refresh_calls}",
+                        "refresh_token": "fresh_rt",
+                        "expires_in": 3600,
+                        "expires_at": time.time() + 3600,
+                    },
+                },
+            )
+
+    oauth_session.async_ensure_token_valid = AsyncMock(side_effect=mock_ensure_valid)
+    auth = AsyncConfigEntryAuth(MagicMock(), oauth_session)
+
+    async def mock_super_request(
+        self_obj: Any, method: str, path: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        tok = await self_obj.async_get_access_token()
+        if tok == "stale_token":
+            # Stagger failures so task 2 & 3 fail after task 1 has already refreshed
+            if "335" in path:
+                await asyncio.sleep(0.03)
+            elif "538" in path:
+                await asyncio.sleep(0.05)
+            raise MyWebLogAuthError("HTTP 401 Unauthorized", status=401)
+        return {"path": path, "token": tok}
+
+    with patch.object(AbstractMyWebLogAuth, "request", new=mock_super_request):
+        results = await asyncio.gather(
+            auth.request("GET", "/bookings?object_id=3748"),
+            auth.request("GET", "/bookings?object_id=335"),
+            auth.request("GET", "/bookings?object_id=538"),
+        )
+
+    assert refresh_calls == 1
+    assert all(r["token"] == "fresh_token_1" for r in results)
