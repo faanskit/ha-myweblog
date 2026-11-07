@@ -354,3 +354,172 @@ async def test_auth_401_concurrent_requests_refresh_only_once(
 
     assert refresh_calls == 1
     assert all(r["token"] == "fresh_token_1" for r in results)
+
+
+async def test_setup_unload_entry_main_api(hass: HomeAssistant) -> None:
+    """Test successful setup and unload of a Main API config entry."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=2,
+        unique_id="main_368_test_id",
+        data={
+            "auth_type": "main",
+            "client_id": "test_id",
+            "client_secret": "test_secret",
+            "user_id": "368",
+            "username": "Drönarklubb Sydost (Main API)",
+            "airplanes": [
+                {"id": 5599, "regnr": "SE-DUM", "title": "SE-DUM (Aircraft)"}
+            ],
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.myweblog.MyWebLogClient") as mock_client:
+        instance = mock_client.return_value
+        instance.api_mode = "main"
+        instance.get_objects = AsyncMock(
+            return_value={
+                "data": [
+                    {
+                        "id": 5599,
+                        "registration": "SE-DUM",
+                        "model": {"name": "Piper PA-28"},
+                        "time_summary": {
+                            "total": {
+                                "airborne": 100.0,
+                                "block": 105.0,
+                                "tach": 102.0,
+                                "landings": 20,
+                            }
+                        },
+                    }
+                ]
+            }
+        )
+        instance.get_bookings = AsyncMock(return_value={"data": []})
+        instance.get_flight_logs = AsyncMock(return_value={"data": []})
+
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert entry.state == ConfigEntryState.LOADED
+        assert entry.runtime_data is not None
+        assert entry.runtime_data.client is not None
+        assert entry.runtime_data.client.api_mode == "main"
+        assert entry.runtime_data.oauth_session is None
+        assert entry.runtime_data.objects_coordinator is not None
+
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+        assert entry.state == ConfigEntryState.NOT_LOADED
+
+
+async def test_setup_entry_main_api_missing_credentials(
+    hass: HomeAssistant,
+) -> None:
+    """Test that Main API entry without credentials fails setup."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=2,
+        data={
+            "auth_type": "main",
+            "client_id": "only_id",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    assert not await hass.config_entries.async_setup(entry.entry_id)
+    assert entry.state == ConfigEntryState.SETUP_ERROR
+
+
+async def test_setup_entry_main_api_forbidden_flightlogs(
+    hass: HomeAssistant,
+) -> None:
+    """Test that HTTP 403 Forbidden on flight logs is handled gracefully."""
+    from pyMyweblog.exceptions import MyWebLogForbiddenError
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=2,
+        unique_id="main_368_test_id",
+        data={
+            "auth_type": "main",
+            "client_id": "test_id",
+            "client_secret": "test_secret",
+            "user_id": "368",
+            "airplanes": [{"id": 5599, "regnr": "SE-DUM", "title": "SE-DUM"}],
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.myweblog.MyWebLogClient") as mock_client:
+        instance = mock_client.return_value
+        instance.api_mode = "main"
+        instance.get_objects = AsyncMock(
+            return_value={
+                "data": [
+                    {
+                        "id": 5599,
+                        "registration": "SE-DUM",
+                    }
+                ]
+            }
+        )
+        instance.get_bookings = AsyncMock(return_value={"data": []})
+        instance.get_flight_logs = AsyncMock(
+            side_effect=MyWebLogForbiddenError("403 Forbidden", status=403)
+        )
+
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert entry.state == ConfigEntryState.LOADED
+
+
+async def test_setup_entry_main_api_forbidden_bookings(
+    hass: HomeAssistant,
+) -> None:
+    """Test that HTTP 403 Forbidden on bookings is handled gracefully without crashing setup."""
+    from pyMyweblog.exceptions import MyWebLogForbiddenError
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=2,
+        unique_id="main_368_test_id",
+        data={
+            "auth_type": "main",
+            "client_id": "test_id",
+            "client_secret": "test_secret",
+            "user_id": "368",
+            "airplanes": [{"id": 5599, "regnr": "SE-DUM", "title": "SE-DUM"}],
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.myweblog.MyWebLogClient") as mock_client:
+        instance = mock_client.return_value
+        instance.api_mode = "main"
+        instance.get_objects = AsyncMock(
+            return_value={
+                "data": [
+                    {
+                        "id": 5599,
+                        "registration": "SE-DUM",
+                    }
+                ]
+            }
+        )
+        instance.get_bookings = AsyncMock(
+            side_effect=MyWebLogForbiddenError("403 Forbidden", status=403)
+        )
+        instance.get_flight_logs = AsyncMock(return_value={"data": []})
+
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert entry.state == ConfigEntryState.LOADED
+        # Bookings coordinator returns empty list gracefully
+        b_coord = entry.runtime_data.bookings_coordinators.get("5599")
+        assert b_coord is not None
+        assert b_coord.data == []

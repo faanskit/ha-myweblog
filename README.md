@@ -77,19 +77,50 @@ Existing users upgrading from v0.x will experience a seamless migration:
    - All previously selected airplanes are automatically preserved.
    - All entity IDs (sensor.<regnr>_*), unique IDs, historical data/statistics, and Lovelace dashboards remain 100% intact and continue updating immediately without any manual entity renaming.
 
-### OAuth 2.1 Authentication (New Installations)
-The integration uses standard Home Assistant OAuth 2.1 with PKCE.
+### Authentication Methods: Mobile API vs Main API
 
+Starting in `v1.1.0`, myWebLog supports two connection methods:
+
+| Feature | Mobile API (OAuth 2.1) | Main API (Client Credentials) |
+| :--- | :--- | :--- |
+| **Best suited for** | Individual pilots and personal setups | Club installations, hangars, airport servers, engine heaters |
+| **Authentication** | Username / Password / BankID via browser redirect | Client ID and Client Secret entered directly |
+| **Token Lifetime** | 1-hour access token, auto-refreshed via refresh token | Permanent token (never expires) |
+| **Requirements** | Active personal member account | Club API key (`client_id` + `client_secret`) issued by club admin |
+
+#### Option A: Mobile API (OAuth 2.1 + PKCE)
 1. Go to **Settings → Devices & Services → Add Integration**.
 2. Search for and select **myWebLog**.
-3. You will be redirected to the secure MyWebLog login page (`myweblog.se`).
-4. Log in and authorize Home Assistant.
-5. You are redirected back to Home Assistant and prompted to choose which airplanes to monitor.
-6. Click **Submit** to finalize the setup.
+3. Select **Mobile API (User account with OAuth 2.1)**.
+4. You will be redirected to the secure MyWebLog login page (`myweblog.se`).
+5. Log in with your personal credentials and authorize Home Assistant.
+6. Choose which airplanes to monitor and click **Submit**.
 
-> **Credentials & Development:**
-> - By default, the integration connects using the pre-configured MyWebLog client ID (15) as a public client (no secret required, secured via PKCE).
-> - If you operate a dedicated client ID / secret, you can optionally configure it via Home Assistant's **Application Credentials** (Settings → Devices & Services → ⋮ Menu → Application Credentials) or environment variables (MYWEBLOG_CLIENT_ID, MYWEBLOG_CLIENT_SECRET).
+#### Option B: Main API (Client Credentials)
+1. Go to **Settings → Devices & Services → Add Integration**.
+2. Search for and select **myWebLog**.
+3. Select **Main API (Club account with Client ID & Secret)**.
+4. Enter the **Client ID** and **Client Secret** provided for your club.
+5. Choose which airplanes to monitor and click **Submit**.
+
+---
+
+### Migrating from Mobile API to Main API
+
+If you have an existing Mobile API setup and want to switch to Main API (e.g. for a permanent club engine heater automation that never requires browser re-authentication):
+
+#### Method 1: In-Place Reconfiguration (Recommended)
+1. Go to **Settings → Devices & Services → myWebLog**.
+2. Click the three-dot menu (⋮) or click **Reconfigure** on the integration card.
+3. Select **Main API (Club account with Client ID & Secret)**.
+4. Enter your club's **Client ID** and **Client Secret**.
+5. Click **Submit**.
+> **Result:** The integration immediately switches to the Main API. All previously selected airplanes, sensors, device entities, statistics, and dashboards are 100% preserved!
+
+#### Method 2: Delete and Re-add
+Because all sensor unique IDs and device identifiers are strictly derived from aircraft registration numbers (e.g. `sensor.myweblog_{regnr}_{metric}`), you can safely delete the existing Mobile API integration and add a new Main API integration. All entities will automatically link back to your existing entities and dashboard cards.
+
+---
 
 ### Managing Monitored Airplanes (Options Flow)
 You can modify your monitored airplanes at any time without reinstalling:

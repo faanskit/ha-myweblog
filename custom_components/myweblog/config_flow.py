@@ -1,10 +1,10 @@
-"""Config flow for MyWeblog integration with OAuth 2.1 + PKCE."""
+"""Config flow for MyWeblog integration with Mobile API (OAuth 2.1) and Main API."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import logging
 import re
-from collections.abc import Mapping
 from typing import Any
 
 import aiohttp
@@ -12,15 +12,27 @@ from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_entry_oauth2_flow, config_validation as cv
+from homeassistant.helpers.selector import (
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import voluptuous as vol
 
-from pyMyweblog.auth import AbstractMyWebLogAuth
+from pyMyweblog.auth import AbstractMyWebLogAuth, ClientCredentialsAuth
 from pyMyweblog.client import MyWebLogClient
-from pyMyweblog.exceptions import MyWebLogAuthError
+from pyMyweblog.exceptions import MyWebLogAuthError, MyWebLogForbiddenError
 
 from .application_credentials import async_register_default_implementation
-from .const import DOMAIN
+from .const import (
+    AUTH_TYPE_MAIN,
+    AUTH_TYPE_MOBILE,
+    CONF_AUTH_TYPE,
+    CONF_CLIENT_ID,
+    CONF_CLIENT_SECRET,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,7 +50,7 @@ class _StaticTokenAuth(AbstractMyWebLogAuth):
 
 def is_auth_error(err: Exception) -> bool:
     """Check if an exception indicates an authentication error."""
-    if isinstance(err, MyWebLogAuthError):
+    if isinstance(err, (MyWebLogAuthError, MyWebLogForbiddenError)):
         return True
     err_str = str(err).lower()
     return (
@@ -89,7 +101,7 @@ def filter_airplanes(objects: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 class ConfigFlow(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domain=DOMAIN):
-    """Handle a config flow for MyWeblog with OAuth 2.1."""
+    """Handle a config flow for MyWeblog with OAuth 2.1 or Main API."""
 
     DOMAIN = DOMAIN
     VERSION = 2
@@ -97,7 +109,9 @@ class ConfigFlow(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domain=DOMA
     def __init__(self) -> None:
         """Initialize the config flow."""
         super().__init__()
+        self._auth_type: str = AUTH_TYPE_MOBILE
         self._oauth_data: dict[str, Any] = {}
+        self._main_data: dict[str, Any] = {}
         self._me: dict[str, Any] = {}
         self._airplanes: list[dict[str, Any]] = []
 
@@ -125,12 +139,194 @@ class ConfigFlow(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domain=DOMA
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle user step by registering default implementation and starting OAuth."""
+        """Handle user step by offering Mobile API or Main API."""
+        if user_input is not None:
+            if user_input.get(CONF_AUTH_TYPE) == AUTH_TYPE_MAIN:
+                return await self.async_step_main()
+            if user_input.get(CONF_AUTH_TYPE) == AUTH_TYPE_MOBILE:
+                return await self.async_step_mobile()
+
+        return self.async_show_menu(
+            step_id="user",
+            menu_options=["mobile", "main"],
+        )
+
+    async def async_step_mobile(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle Mobile API OAuth 2.1 flow."""
+        self._auth_type = AUTH_TYPE_MOBILE
         await async_register_default_implementation(self.hass)
         return await super().async_step_user(user_input)
 
+    async def async_step_main(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle Main API Client Credentials flow."""
+        self._auth_type = AUTH_TYPE_MAIN
+        errors: dict[str, str] = {}
+
+        default_client_id = ""
+        if self.source == config_entries.SOURCE_RECONFIGURE:
+            entry = self._get_reconfigure_entry()
+            if entry:
+                default_client_id = entry.data.get(CONF_CLIENT_ID, "")
+        elif self.source == config_entries.SOURCE_REAUTH:
+            entry = self._get_reauth_entry()
+            if entry:
+                default_client_id = entry.data.get(CONF_CLIENT_ID, "")
+
+        if user_input is not None:
+            client_id = str(user_input.get(CONF_CLIENT_ID, "")).strip()
+            client_secret = str(user_input.get(CONF_CLIENT_SECRET, "")).strip()
+
+            if not client_id or not client_secret:
+                errors["base"] = "invalid_auth"
+            else:
+                session = async_get_clientsession(self.hass)
+                token_data: dict[str, Any] = {}
+                objects: list[dict[str, Any]] = []
+
+                try:
+                    auth = ClientCredentialsAuth(
+                        session, client_id=client_id, client_secret=client_secret
+                    )
+                    client = MyWebLogClient(auth=auth, api_mode="main")
+
+                    token_resp = await client.get_token()
+                    token_data = (
+                        token_resp.get("data", token_resp)
+                        if isinstance(token_resp, dict)
+                        else {}
+                    )
+                    rights = token_data.get("rights", {})
+                    if "objects" not in rights or "bookings" not in rights:
+                        errors["base"] = "insufficient_rights"
+                    else:
+                        objects_resp = await client.get_objects()
+                        objects = (
+                            objects_resp.get("data", objects_resp.get("Object", []))
+                            if isinstance(objects_resp, dict)
+                            else []
+                        )
+                except ValueError:
+                    errors["base"] = "invalid_auth"
+                except Exception as err:
+                    _LOGGER.error("Failed Main API validation: %s", err)
+                    if is_auth_error(err):
+                        errors["base"] = "invalid_auth"
+                    elif isinstance(err, aiohttp.ClientError):
+                        errors["base"] = "cannot_connect"
+                    else:
+                        errors["base"] = "cannot_connect"
+
+            if not errors:
+                org = token_data.get("organization") or {}
+                org_id = str(org.get("id") or "main")
+                org_name = org.get("name") or "myWebLog"
+                unique_id = f"main_{org_id}_{client_id}"
+
+                # Handle re-authentication
+                if self.source == config_entries.SOURCE_REAUTH:
+                    reauth_entry = self._get_reauth_entry()
+                    if reauth_entry:
+                        existing_user_id = str(reauth_entry.data.get("user_id") or "")
+                        if existing_user_id and existing_user_id != org_id:
+                            return self.async_abort(reason="account_mismatch")
+
+                        await self.async_set_unique_id(unique_id)
+                        if reauth_entry.unique_id != unique_id:
+                            self._abort_if_unique_id_configured()
+
+                        data_updates = {
+                            CONF_AUTH_TYPE: AUTH_TYPE_MAIN,
+                            CONF_CLIENT_ID: client_id,
+                            CONF_CLIENT_SECRET: client_secret,
+                            "user_id": org_id,
+                            "username": f"{org_name} (Main API)",
+                        }
+                        return self.async_update_reload_and_abort(
+                            reauth_entry,
+                            unique_id=unique_id,
+                            data_updates=data_updates,
+                        )
+
+                # Handle re-configuration (migration from Mobile API or updating credentials)
+                if self.source == config_entries.SOURCE_RECONFIGURE:
+                    reconf_entry = self._get_reconfigure_entry()
+                    if reconf_entry:
+                        await self.async_set_unique_id(unique_id)
+                        if reconf_entry.unique_id != unique_id:
+                            self._abort_if_unique_id_configured()
+
+                        new_data = dict(reconf_entry.data)
+                        new_data.pop("token", None)
+                        new_data.pop("auth_implementation", None)
+                        new_data[CONF_AUTH_TYPE] = AUTH_TYPE_MAIN
+                        new_data[CONF_CLIENT_ID] = client_id
+                        new_data[CONF_CLIENT_SECRET] = client_secret
+                        new_data["user_id"] = org_id
+                        new_data["username"] = f"{org_name} (Main API)"
+
+                        planes_count = len(new_data.get("airplanes", []))
+                        title = (
+                            f"MyWeblog ({org_name} (Main API) - {planes_count} "
+                            f"{'plane' if planes_count == 1 else 'planes'})"
+                        )
+                        return self.async_update_reload_and_abort(
+                            reconf_entry,
+                            unique_id=unique_id,
+                            title=title,
+                            data=new_data,
+                        )
+
+                await self.async_set_unique_id(unique_id)
+                self._abort_if_unique_id_configured()
+
+                airplanes = filter_airplanes(objects)
+                if not airplanes:
+                    _LOGGER.warning(
+                        "No airplanes found for Main API account %s", unique_id
+                    )
+
+                self._main_data = {
+                    CONF_AUTH_TYPE: AUTH_TYPE_MAIN,
+                    CONF_CLIENT_ID: client_id,
+                    CONF_CLIENT_SECRET: client_secret,
+                }
+                self._me = {
+                    "id": org_id,
+                    "username": f"{org_name} (Main API)",
+                    "name": {"full": org_name},
+                }
+                self._airplanes = airplanes
+
+                return await self.async_step_select_airplane()
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_CLIENT_ID, default=default_client_id): str,
+                vol.Required(CONF_CLIENT_SECRET): TextSelector(
+                    TextSelectorConfig(type=TextSelectorType.PASSWORD)
+                ),
+            }
+        )
+        return self.async_show_form(step_id="main", data_schema=schema, errors=errors)
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle reconfiguring an existing entry."""
+        return self.async_show_menu(
+            step_id="reconfigure",
+            menu_options=["mobile", "main"],
+        )
+
     async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> FlowResult:
         """Perform reauth upon an API authentication error."""
+        reauth_entry = self._get_reauth_entry()
+        if reauth_entry and reauth_entry.data.get(CONF_AUTH_TYPE) == AUTH_TYPE_MAIN:
+            return await self.async_step_main()
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
@@ -139,14 +335,14 @@ class ConfigFlow(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domain=DOMA
         """Confirm reauth dialog."""
         if user_input is None:
             return self.async_show_form(step_id="reauth_confirm")
-        return await self.async_step_user()
+        return await self.async_step_mobile()
 
     async def async_oauth_create_entry(self, data: dict[str, Any]) -> FlowResult:
         """Handle creation of entry once OAuth flow completes."""
         token = data["token"]["access_token"]
         session = async_get_clientsession(self.hass)
         auth = _StaticTokenAuth(session, token)
-        client = MyWebLogClient(auth=auth)
+        client = MyWebLogClient(auth=auth, api_mode="mobile")
 
         try:
             me_resp = await client.get_me()
@@ -166,6 +362,33 @@ class ConfigFlow(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domain=DOMA
         user_id = str(me.get("id"))
         await self.async_set_unique_id(user_id)
 
+        # Handle re-configuration (migration from Main API or updating OAuth)
+        if self.source == config_entries.SOURCE_RECONFIGURE:
+            reconf_entry = self._get_reconfigure_entry()
+            if reconf_entry:
+                if reconf_entry.unique_id != user_id:
+                    self._abort_if_unique_id_configured()
+                new_data = dict(reconf_entry.data)
+                new_data.pop(CONF_CLIENT_ID, None)
+                new_data.pop(CONF_CLIENT_SECRET, None)
+                new_data.update(data)
+                new_data[CONF_AUTH_TYPE] = AUTH_TYPE_MOBILE
+                new_data["user_id"] = me.get("id")
+                new_data["username"] = me.get("username")
+
+                planes_count = len(new_data.get("airplanes", []))
+                username = me.get("username", "User")
+                title = (
+                    f"MyWeblog ({username} - {planes_count} "
+                    f"{'plane' if planes_count == 1 else 'planes'})"
+                )
+                return self.async_update_reload_and_abort(
+                    reconf_entry,
+                    unique_id=user_id,
+                    title=title,
+                    data=new_data,
+                )
+
         # Handle re-authentication
         if self.source == config_entries.SOURCE_REAUTH:
             reauth_entry = self._get_reauth_entry()
@@ -176,6 +399,7 @@ class ConfigFlow(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domain=DOMA
                     )
                 else:
                     self._abort_if_unique_id_mismatch(reason="account_mismatch")
+                data[CONF_AUTH_TYPE] = AUTH_TYPE_MOBILE
                 data["airplanes"] = reauth_entry.data.get("airplanes", [])
                 data["user_id"] = me.get("id")
                 data["username"] = me.get("username") or reauth_entry.data.get(
@@ -235,14 +459,26 @@ class ConfigFlow(config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domain=DOMA
                     username,
                 )
 
-                return self.async_create_entry(
-                    title=title,
-                    data={
-                        **self._oauth_data,
+                if self._auth_type == AUTH_TYPE_MAIN:
+                    entry_data = {
+                        **self._main_data,
+                        CONF_AUTH_TYPE: AUTH_TYPE_MAIN,
                         "user_id": self._me.get("id"),
                         "username": self._me.get("username"),
                         "airplanes": selected_planes,
-                    },
+                    }
+                else:
+                    entry_data = {
+                        **self._oauth_data,
+                        CONF_AUTH_TYPE: AUTH_TYPE_MOBILE,
+                        "user_id": self._me.get("id"),
+                        "username": self._me.get("username"),
+                        "airplanes": selected_planes,
+                    }
+
+                return self.async_create_entry(
+                    title=title,
+                    data=entry_data,
                 )
 
         airplane_titles = {plane["regnr"]: plane["title"] for plane in self._airplanes}

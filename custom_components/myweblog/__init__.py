@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 import logging
 import time
 from typing import Any
@@ -16,10 +17,12 @@ from homeassistant.helpers import config_entry_oauth2_flow
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
+from pyMyweblog.auth import ClientCredentialsAuth
 from pyMyweblog.client import MyWebLogClient
 from pyMyweblog.exceptions import (
     MyWebLogAuthError,
     MyWebLogError,
+    MyWebLogForbiddenError,
     MyWebLogMaintenanceError,
     MyWebLogRateLimitError,
 )
@@ -27,7 +30,12 @@ from pyMyweblog.exceptions import (
 from .api import AsyncConfigEntryAuth
 from .application_credentials import async_register_default_implementation
 from .const import (
+    AUTH_TYPE_MAIN,
+    AUTH_TYPE_MOBILE,
     BOOKINGS_UPDATE_INTERVAL,
+    CONF_AUTH_TYPE,
+    CONF_CLIENT_ID,
+    CONF_CLIENT_SECRET,
     OBJECTS_UPDATE_INTERVAL,
 )
 
@@ -41,7 +49,7 @@ class MyWebLogData:
     """Runtime data stored in entry.runtime_data."""
 
     client: MyWebLogClient
-    oauth_session: config_entry_oauth2_flow.OAuth2Session
+    oauth_session: config_entry_oauth2_flow.OAuth2Session | None
     objects_coordinator: DataUpdateCoordinator[list[dict[str, Any]]]
     bookings_coordinators: dict[str, DataUpdateCoordinator[list[dict[str, Any]]]]
 
@@ -85,11 +93,25 @@ async def _async_fetch_airplane_flightlog(
             return fl_list[0]
     except MyWebLogAuthError:
         raise
+    except MyWebLogForbiddenError as err:
+        _LOGGER.debug(
+            "No permission to read flight logs for airplane %s: %s",
+            plane_id,
+            err,
+        )
+        return None
     except aiohttp.ClientResponseError as err:
         if err.status in (400, 401):
             raise ConfigEntryAuthFailed(
                 "Authentication expired, please re-authenticate"
             ) from err
+        if err.status == 403:
+            _LOGGER.debug(
+                "No permission to read flight logs for airplane %s: %s",
+                plane_id,
+                err,
+            )
+            return None
         _LOGGER.warning(
             "HTTP error fetching latest flight log for airplane %s: %s",
             plane_id,
@@ -113,18 +135,32 @@ def _create_bookings_update_method(
     async def async_update_bookings() -> list[dict[str, Any]]:
         _LOGGER.debug("Fetching bookings for airplane %s", p_id)
         try:
-            res = await client.get_bookings(object_id=p_id)
+            res = await client.get_bookings(object_id=p_id, date_from=date.today())
             data = res.get("data", res.get("Booking", []))
             return data if isinstance(data, list) else []
         except MyWebLogAuthError as err:
             raise ConfigEntryAuthFailed(
                 "Authentication expired, please re-authenticate"
             ) from err
+        except MyWebLogForbiddenError as err:
+            _LOGGER.debug(
+                "No permission to read bookings for airplane %s: %s",
+                p_id,
+                err,
+            )
+            return []
         except aiohttp.ClientResponseError as err:
             if err.status in (400, 401):
                 raise ConfigEntryAuthFailed(
                     "Authentication expired, please re-authenticate"
                 ) from err
+            if err.status == 403:
+                _LOGGER.debug(
+                    "No permission to read bookings for airplane %s: %s",
+                    p_id,
+                    err,
+                )
+                return []
             raise UpdateFailed(
                 f"HTTP error fetching bookings for {p_id}: {err}"
             ) from err
@@ -141,24 +177,44 @@ def _create_bookings_update_method(
 
 async def async_setup_entry(hass: HomeAssistant, entry: MyWebLogConfigEntry) -> bool:
     """Set up MyWeblog from a config entry."""
-    await async_register_default_implementation(hass)
-
-    if "token" not in entry.data:
-        raise ConfigEntryAuthFailed("No OAuth token found. Re-authentication required.")
-
-    try:
-        implementation = (
-            await config_entry_oauth2_flow.async_get_config_entry_implementation(
-                hass, entry
-            )
-        )
-    except Exception as err:
-        raise ConfigEntryAuthFailed(f"Cannot find OAuth implementation: {err}") from err
-
+    auth_type = entry.data.get(CONF_AUTH_TYPE, AUTH_TYPE_MOBILE)
     session = async_get_clientsession(hass)
-    oauth_session = config_entry_oauth2_flow.OAuth2Session(hass, entry, implementation)
-    auth = AsyncConfigEntryAuth(session, oauth_session)
-    client = MyWebLogClient(auth=auth)
+
+    oauth_session: config_entry_oauth2_flow.OAuth2Session | None = None
+    if auth_type == AUTH_TYPE_MAIN:
+        client_id = entry.data.get(CONF_CLIENT_ID)
+        client_secret = entry.data.get(CONF_CLIENT_SECRET)
+        if not client_id or not client_secret:
+            raise ConfigEntryAuthFailed("Missing Main API client credentials")
+
+        auth = ClientCredentialsAuth(
+            session, client_id=client_id, client_secret=client_secret
+        )
+        client = MyWebLogClient(auth=auth, api_mode="main")
+    else:
+        await async_register_default_implementation(hass)
+
+        if "token" not in entry.data:
+            raise ConfigEntryAuthFailed(
+                "No OAuth token found. Re-authentication required."
+            )
+
+        try:
+            implementation = (
+                await config_entry_oauth2_flow.async_get_config_entry_implementation(
+                    hass, entry
+                )
+            )
+        except Exception as err:
+            raise ConfigEntryAuthFailed(
+                f"Cannot find OAuth implementation: {err}"
+            ) from err
+
+        oauth_session = config_entry_oauth2_flow.OAuth2Session(
+            hass, entry, implementation
+        )
+        auth = AsyncConfigEntryAuth(session, oauth_session)
+        client = MyWebLogClient(auth=auth, api_mode="mobile")
 
     # 1. Objects coordinator
     async def async_update_objects() -> list[dict[str, Any]]:
