@@ -9,8 +9,8 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/faanskit/ha-myweblog/issues",
   "quality_scale": "gold",
-  "requirements": ["pyMyweblog>=1.0.0"],
+  "requirements": ["pyMyweblog>=1.1.0"],
   "ssdp": [],
-  "version": "1.0.3",
+  "version": "1.1.0",
   "zeroconf": []
 }

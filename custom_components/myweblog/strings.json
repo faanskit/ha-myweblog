@@ -2,8 +2,20 @@
   "config": {
     "step": {
       "user": {
-        "description": "Connect to your MyWebLog account.",
-        "title": "myWebLog"
+        "title": "myWebLog",
+        "description": "Choose how you want to connect to MyWebLog.",
+        "menu_options": {
+          "mobile": "Mobile API (User account with OAuth 2.1)",
+          "main": "Main API (Club account with Client ID & Secret)"
+        }
+      },
+      "main": {
+        "title": "Main API Authentication",
+        "description": "Enter the Client ID and Client Secret for your club's Main API access.",
+        "data": {
+          "client_id": "Client ID",
+          "client_secret": "Client Secret"
+        }
       },
       "pick_implementation": {
         "title": "Choose Authentication Method"
@@ -11,6 +23,14 @@
       "reauth_confirm": {
         "description": "Your MyWebLog session has expired. Please authenticate again to continue.",
         "title": "Re-authenticate MyWebLog"
+      },
+      "reconfigure": {
+        "title": "Reconfigure myWebLog",
+        "description": "Choose an authentication method to update your credentials or switch API type.",
+        "menu_options": {
+          "mobile": "Mobile API (User account with OAuth 2.1)",
+          "main": "Main API (Club account with Client ID & Secret)"
+        }
       },
       "select_airplane": {
         "data": {
@@ -23,6 +43,7 @@
     "error": {
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Invalid authentication",
+      "insufficient_rights": "The provided token does not have permission to access objects and/or bookings",
       "unknown": "Unexpected error",
       "no_airplanes_selected": "Please select at least one airplane"
     },
@@ -36,6 +57,7 @@
       "oauth_unauthorized": "OAuth authorization error while obtaining access token",
       "oauth_failed": "Error while obtaining access token",
       "reauth_successful": "Re-authentication successful",
+      "reconfigure_successful": "Reconfiguration successful",
       "account_mismatch": "Re-authenticated account does not match this configuration entry"
     }
   },
@@ -65,20 +87,48 @@
   },
   "entity": {
     "sensor": {
-      "next_booking": { "name": "Next Booking" },
-      "yellow_tags": { "name": "Yellow Tags" },
-      "red_tags": { "name": "Red Tags" },
-      "days_to_go": { "name": "Days to Go (Maintenance)" },
-      "hours_to_go": { "name": "Hours to Go (Maintenance)" },
-      "days_to_flight_stop": { "name": "Days to Go (Flight Stop)" },
-      "hours_to_flight_stop": { "name": "Hours to Go (Flight Stop)" },
-      "airborne": { "name": "Airborne" },
-      "block": { "name": "Block" },
-      "tachometer": { "name": "Tachometer" },
-      "tach_time": { "name": "Tach Time" },
-      "landings": { "name": "Landings" },
-      "model": { "name": "Model" },
-      "club": { "name": "Club" }
+      "next_booking": {
+        "name": "Next Booking"
+      },
+      "yellow_tags": {
+        "name": "Yellow Tags"
+      },
+      "red_tags": {
+        "name": "Red Tags"
+      },
+      "days_to_go": {
+        "name": "Days to Go (Maintenance)"
+      },
+      "hours_to_go": {
+        "name": "Hours to Go (Maintenance)"
+      },
+      "days_to_flight_stop": {
+        "name": "Days to Go (Flight Stop)"
+      },
+      "hours_to_flight_stop": {
+        "name": "Hours to Go (Flight Stop)"
+      },
+      "airborne": {
+        "name": "Airborne"
+      },
+      "block": {
+        "name": "Block"
+      },
+      "tachometer": {
+        "name": "Tachometer"
+      },
+      "tach_time": {
+        "name": "Tach Time"
+      },
+      "landings": {
+        "name": "Landings"
+      },
+      "model": {
+        "name": "Model"
+      },
+      "club": {
+        "name": "Club"
+      }
     }
   }
 }

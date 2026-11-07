@@ -6,6 +6,12 @@ from datetime import timedelta
 
 DOMAIN = "myweblog"
 
+CONF_AUTH_TYPE = "auth_type"
+AUTH_TYPE_MOBILE = "mobile"
+AUTH_TYPE_MAIN = "main"
+CONF_CLIENT_ID = "client_id"
+CONF_CLIENT_SECRET = "client_secret"
+
 OAUTH2_AUTHORIZE = "https://api.myweblog.se/mobile/v5/oauth/authorize"
 OAUTH2_TOKEN = "https://api.myweblog.se/mobile/v5/oauth/token"
 DEFAULT_CLIENT_ID = "15"

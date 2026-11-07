@@ -17,6 +17,13 @@ async def _start_oauth_flow(hass: HomeAssistant) -> dict:
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
     if (
+        result["type"] == data_entry_flow.FlowResultType.MENU
+        and result["step_id"] == "user"
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "mobile"}
+        )
+    if (
         result["type"] == data_entry_flow.FlowResultType.FORM
         and result["step_id"] == "pick_implementation"
     ):
@@ -590,3 +597,350 @@ async def test_oauth_implementation_pkce_public_and_confidential(
         posted_data = mock_session.post.call_args.kwargs["data"]
         assert posted_data["client_secret"] == "top_secret"
         assert "code_verifier" in posted_data
+
+
+async def test_main_api_flow_success(hass: HomeAssistant) -> None:
+    """Test full Main API config flow with client credentials."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    assert result["type"] == data_entry_flow.FlowResultType.MENU
+    assert result["step_id"] == "user"
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "main"}
+    )
+    assert result2["type"] == data_entry_flow.FlowResultType.FORM
+    assert result2["step_id"] == "main"
+
+    with patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
+        client = mock_client.return_value
+        client.get_token = AsyncMock(
+            return_value={
+                "data": {
+                    "organization": {"id": 368, "name": "Drönarklubb Sydost"},
+                    "owner": {"id": 66375, "name": "Marcus Karlsson"},
+                    "rights": {"objects": "rw", "bookings": "rw", "flightlogs": "rw"},
+                }
+            }
+        )
+        client.get_objects = AsyncMock(
+            return_value={
+                "data": [
+                    {
+                        "id": 5599,
+                        "registration": "SE-DUM",
+                        "category": {"id": 0},
+                        "model": {"name": "Piper PA-28"},
+                    },
+                    {
+                        "id": 5610,
+                        "registration": "SE-JET",
+                        "category": {"id": 0},
+                        "model": {"name": "Cessna 172"},
+                    },
+                ]
+            }
+        )
+
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {"client_id": "my_client_id", "client_secret": "my_client_secret"},
+        )
+
+        assert result3["type"] == data_entry_flow.FlowResultType.FORM
+        assert result3["step_id"] == "select_airplane"
+
+        result4 = await hass.config_entries.flow.async_configure(
+            result3["flow_id"],
+            {"airplanes": ["SE-DUM"]},
+        )
+
+        assert result4["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        assert result4["title"] == "MyWeblog (Drönarklubb Sydost (Main API) - 1 plane)"
+        assert result4["data"]["auth_type"] == "main"
+        assert result4["data"]["client_id"] == "my_client_id"
+        assert result4["data"]["client_secret"] == "my_client_secret"
+        assert result4["data"]["user_id"] == "368"
+        assert result4["data"]["username"] == "Drönarklubb Sydost (Main API)"
+        assert len(result4["data"]["airplanes"]) == 1
+        assert result4["result"].unique_id == "main_368_my_client_id"
+
+
+async def test_main_api_flow_invalid_auth(hass: HomeAssistant) -> None:
+    """Test Main API config flow with invalid credentials."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "main"}
+    )
+
+    with patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
+        client = mock_client.return_value
+        client.get_token = AsyncMock(
+            side_effect=MyWebLogAuthError("Invalid credentials")
+        )
+
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {"client_id": "bad_id", "client_secret": "bad_secret"},
+        )
+
+        assert result3["type"] == data_entry_flow.FlowResultType.FORM
+        assert result3["step_id"] == "main"
+        assert result3["errors"]["base"] == "invalid_auth"
+
+
+async def test_main_api_flow_empty_credentials(hass: HomeAssistant) -> None:
+    """Test Main API config flow with empty/whitespace credentials."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "main"}
+    )
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result2["flow_id"],
+        {"client_id": "   ", "client_secret": "   "},
+    )
+
+    assert result3["type"] == data_entry_flow.FlowResultType.FORM
+    assert result3["step_id"] == "main"
+    assert result3["errors"]["base"] == "invalid_auth"
+
+
+async def test_main_api_flow_insufficient_rights(hass: HomeAssistant) -> None:
+    """Test Main API config flow when token lacks objects or bookings permission."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "main"}
+    )
+
+    # 1. Missing objects permission
+    with patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
+        client = mock_client.return_value
+        client.get_token = AsyncMock(
+            return_value={
+                "data": {
+                    "organization": {"id": 368, "name": "Drönarklubb Sydost"},
+                    "rights": {"bookings": "rw"},
+                }
+            }
+        )
+
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {"client_id": "no_obj_id", "client_secret": "secret"},
+        )
+
+        assert result3["type"] == data_entry_flow.FlowResultType.FORM
+        assert result3["step_id"] == "main"
+        assert result3["errors"]["base"] == "insufficient_rights"
+
+    # 2. Missing bookings permission
+    with patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
+        client = mock_client.return_value
+        client.get_token = AsyncMock(
+            return_value={
+                "data": {
+                    "organization": {"id": 368, "name": "Drönarklubb Sydost"},
+                    "rights": {"objects": "rw"},
+                }
+            }
+        )
+
+        result4 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {"client_id": "no_book_id", "client_secret": "secret"},
+        )
+
+        assert result4["type"] == data_entry_flow.FlowResultType.FORM
+        assert result4["step_id"] == "main"
+        assert result4["errors"]["base"] == "insufficient_rights"
+
+
+async def test_main_api_flow_already_configured(hass: HomeAssistant) -> None:
+    """Test Main API config flow aborts when client credentials already exist."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="main_368_existing_id",
+        data={
+            "auth_type": "main",
+            "client_id": "existing_id",
+            "client_secret": "secret",
+            "user_id": "368",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "main"}
+    )
+
+    with patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
+        client = mock_client.return_value
+        client.get_token = AsyncMock(
+            return_value={
+                "data": {
+                    "organization": {"id": 368, "name": "Drönarklubb Sydost"},
+                    "rights": {"objects": "rw", "bookings": "rw"},
+                }
+            }
+        )
+        client.get_objects = AsyncMock(return_value={"data": []})
+
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {"client_id": "existing_id", "client_secret": "secret"},
+        )
+
+        assert result3["type"] == data_entry_flow.FlowResultType.ABORT
+        assert result3["reason"] == "already_configured"
+
+
+async def test_main_api_reauth(hass: HomeAssistant) -> None:
+    """Test reauth for Main API entry, including rotating client_id for same club."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="main_368_my_client_id",
+        data={
+            "auth_type": "main",
+            "client_id": "my_client_id",
+            "client_secret": "old_secret",
+            "user_id": "368",
+            "username": "Drönarklubb Sydost (Main API)",
+            "airplanes": [{"id": 5599, "regnr": "SE-DUM", "title": "SE-DUM"}],
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reauth_flow(hass)
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "main"
+
+    with patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
+        client = mock_client.return_value
+        # Reauth with a new rotated client_id for the same club (368)
+        client.get_token = AsyncMock(
+            return_value={
+                "data": {
+                    "organization": {"id": 368, "name": "Drönarklubb Sydost"},
+                    "rights": {"objects": "rw", "bookings": "rw"},
+                }
+            }
+        )
+        client.get_objects = AsyncMock(return_value={"data": []})
+
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"client_id": "rotated_client_id", "client_secret": "new_secret"},
+        )
+
+        assert result2["type"] == data_entry_flow.FlowResultType.ABORT
+        assert result2["reason"] == "reauth_successful"
+        assert entry.data["client_id"] == "rotated_client_id"
+        assert entry.data["client_secret"] == "new_secret"
+        assert entry.unique_id == "main_368_rotated_client_id"
+
+
+async def test_main_api_reauth_account_mismatch(hass: HomeAssistant) -> None:
+    """Test reauth for Main API entry aborts on organization mismatch."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="main_368_my_client_id",
+        data={
+            "auth_type": "main",
+            "client_id": "my_client_id",
+            "client_secret": "old_secret",
+            "user_id": "368",
+            "username": "Drönarklubb Sydost (Main API)",
+            "airplanes": [{"id": 5599, "regnr": "SE-DUM", "title": "SE-DUM"}],
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reauth_flow(hass)
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "main"
+
+    with patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
+        client = mock_client.return_value
+        # Token belongs to completely different organization (999)
+        client.get_token = AsyncMock(
+            return_value={
+                "data": {
+                    "organization": {"id": 999, "name": "Annan Klubb"},
+                    "rights": {"objects": "rw", "bookings": "rw"},
+                }
+            }
+        )
+        client.get_objects = AsyncMock(return_value={"data": []})
+
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"client_id": "diff_org_id", "client_secret": "secret"},
+        )
+
+        assert result2["type"] == data_entry_flow.FlowResultType.ABORT
+        assert result2["reason"] == "account_mismatch"
+
+
+async def test_reconfigure_flow_mobile_to_main(hass: HomeAssistant) -> None:
+    """Test reconfiguring an existing Mobile API entry to Main API in-place."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="66375",
+        data={
+            "auth_type": "mobile",
+            "token": {"access_token": "old_token"},
+            "user_id": 66375,
+            "username": "368-12345",
+            "airplanes": [
+                {"id": 5599, "regnr": "SE-DUM", "title": "SE-DUM (Piper PA-28)"}
+            ],
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["type"] == data_entry_flow.FlowResultType.MENU
+    assert result["step_id"] == "reconfigure"
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "main"}
+    )
+    assert result2["type"] == data_entry_flow.FlowResultType.FORM
+    assert result2["step_id"] == "main"
+
+    with patch("custom_components.myweblog.config_flow.MyWebLogClient") as mock_client:
+        client = mock_client.return_value
+        client.get_token = AsyncMock(
+            return_value={
+                "data": {
+                    "organization": {"id": 368, "name": "Drönarklubb Sydost"},
+                    "rights": {"objects": "rw", "bookings": "rw"},
+                }
+            }
+        )
+        client.get_objects = AsyncMock(return_value={"data": []})
+
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {"client_id": "new_main_id", "client_secret": "new_main_secret"},
+        )
+
+        assert result3["type"] == data_entry_flow.FlowResultType.ABORT
+        assert result3["reason"] == "reconfigure_successful"
+        assert entry.data["auth_type"] == "main"
+        assert entry.data["client_id"] == "new_main_id"
+        assert entry.data["client_secret"] == "new_main_secret"
+        assert entry.unique_id == "main_368_new_main_id"
+        assert len(entry.data["airplanes"]) == 1
+        assert entry.data["airplanes"][0]["regnr"] == "SE-DUM"

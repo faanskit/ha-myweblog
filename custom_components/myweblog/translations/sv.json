@@ -2,8 +2,20 @@
   "config": {
     "step": {
       "user": {
-        "description": "Anslut till ditt MyWebLog-konto.",
-        "title": "myWebLog"
+        "title": "myWebLog",
+        "description": "Välj hur du vill ansluta till MyWebLog.",
+        "menu_options": {
+          "mobile": "Mobile API (Användarkonto med OAuth 2.1)",
+          "main": "Main API (Klubbkonto med Client ID & Secret)"
+        }
+      },
+      "main": {
+        "title": "Main API-autentisering",
+        "description": "Ange Client ID och Client Secret för din flygklubbs Main API.",
+        "data": {
+          "client_id": "Client ID",
+          "client_secret": "Client Secret"
+        }
       },
       "pick_implementation": {
         "title": "Välj autentiseringsmetod"
@@ -11,6 +23,14 @@
       "reauth_confirm": {
         "description": "Din MyWebLog-session har löpt ut. Vänligen autentisera igen för att fortsätta.",
         "title": "Återautentisera MyWebLog"
+      },
+      "reconfigure": {
+        "title": "Omkonfigurera myWebLog",
+        "description": "Välj autentiseringsmetod för att uppdatera uppgifter eller byta API-typ.",
+        "menu_options": {
+          "mobile": "Mobile API (Användarkonto med OAuth 2.1)",
+          "main": "Main API (Klubbkonto med Client ID & Secret)"
+        }
       },
       "select_airplane": {
         "data": {
@@ -23,6 +43,7 @@
     "error": {
       "cannot_connect": "Det gick inte att ansluta",
       "invalid_auth": "Ogiltiga inloggningsuppgifter",
+      "insufficient_rights": "Den angivna nyckeln saknar behörighet att läsa objekt och/eller bokningar",
       "unknown": "Oväntat fel",
       "no_airplanes_selected": "Välj minst ett flygplan"
     },
@@ -36,6 +57,7 @@
       "oauth_unauthorized": "OAuth-auktoriseringsfel vid hämtning av åtkomsttoken",
       "oauth_failed": "Fel vid hämtning av åtkomsttoken",
       "reauth_successful": "Återautentisering lyckades",
+      "reconfigure_successful": "Omkonfiguration lyckades",
       "account_mismatch": "Det återautentiserade kontot matchar inte denna integration"
     }
   },
@@ -65,20 +87,48 @@
   },
   "entity": {
     "sensor": {
-      "next_booking": { "name": "Nästa Bokning" },
-      "yellow_tags": { "name": "Gul Anmärkning" },
-      "red_tags": { "name": "Röd Anmärkning" },
-      "days_to_go": { "name": "Dagar till underhåll" },
-      "hours_to_go": { "name": "Timmar till underhåll" },
-      "days_to_flight_stop": { "name": "Dagar till flygstopp" },
-      "hours_to_flight_stop": { "name": "Timmar till flygstopp" },
-      "airborne": { "name": "Flygtid" },
-      "block": { "name": "Blocktid" },
-      "tachometer": { "name": "Mätarställning (tach)" },
-      "tach_time": { "name": "Total gångtid (tach)" },
-      "landings": { "name": "Landningar" },
-      "model": { "name": "Modell" },
-      "club": { "name": "Flygklubb" }
+      "next_booking": {
+        "name": "Nästa Bokning"
+      },
+      "yellow_tags": {
+        "name": "Gul Anmärkning"
+      },
+      "red_tags": {
+        "name": "Röd Anmärkning"
+      },
+      "days_to_go": {
+        "name": "Dagar till underhåll"
+      },
+      "hours_to_go": {
+        "name": "Timmar till underhåll"
+      },
+      "days_to_flight_stop": {
+        "name": "Dagar till flygstopp"
+      },
+      "hours_to_flight_stop": {
+        "name": "Timmar till flygstopp"
+      },
+      "airborne": {
+        "name": "Flygtid"
+      },
+      "block": {
+        "name": "Blocktid"
+      },
+      "tachometer": {
+        "name": "Mätarställning (tach)"
+      },
+      "tach_time": {
+        "name": "Total gångtid (tach)"
+      },
+      "landings": {
+        "name": "Landningar"
+      },
+      "model": {
+        "name": "Modell"
+      },
+      "club": {
+        "name": "Flygklubb"
+      }
     }
   }
 }
